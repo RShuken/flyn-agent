@@ -1,6 +1,6 @@
 # flyn-agent
 
-Private workspace + config for **Flyn** — Ryan's local execution agent on Mac Mini 4C, paired with **Rel** (primary/personal agent) via the OAC gateway.
+Private workspace + config for **Flyn** — Ryan's CEO of Mac Mini 4C. Flyn owns the machine end-to-end: strategy, orchestration, execution, interactive turns. Peers with other agents (Rel elsewhere, future deployments) over the OAC gateway as equals — no subordinate, no principal.
 
 ## What this repo is
 
@@ -40,28 +40,31 @@ See `deploy/install-memory-stack.md` for the memory stack install order. High-le
 ## Architecture summary
 
 ```
-┌─────────────────────────────────────────────┐
-│   Ryan (operator)                           │
-└───────────────┬─────────────────────────────┘
-                │ Telegram / direct
-                ▼
-┌─────────────────────────────────────────────┐
-│   Rel (primary, interactive, creative)      │
-└───────────────┬─────────────────────────────┘
-                │ OAC gateway
-                ▼
-┌─────────────────────────────────────────────┐
-│   Flyn — Mac Mini 4C                        │
-│   ├── Codex GPT-5.4 primary (OAuth sub)     │
-│   ├── Gemma 4 local (heartbeats/cron)       │
-│   ├── Lossless Claw context engine          │
-│   ├── Gemini 2 embeddings → sqlite-vec      │
-│   ├── mem0 structured memory                │
-│   └── EmbeddingGemma local fallback         │
-└─────────────────────────────────────────────┘
+                 ┌─────────────────────┐
+                 │  Ryan (operator)    │
+                 └──────────┬──────────┘
+                            │ Telegram / direct
+                            ▼
+       ┌──────────────────────────────────────────┐
+       │   Flyn — CEO of Mac Mini 4C              │
+       │   ├── Codex GPT-5.4 primary (OAuth sub)  │
+       │   ├── Gemma 4 local (heartbeats/cron)    │
+       │   ├── Lossless Claw context engine       │
+       │   ├── Gemini 2 embeddings → sqlite-vec   │
+       │   ├── mem0 structured memory             │
+       │   └── EmbeddingGemma local fallback      │
+       └─────────┬───────────────────────┬────────┘
+                 │ spawns                │ peers
+                 ▼                       ▼
+       ┌──────────────┐         ┌──────────────────┐
+       │ Sub-agents   │         │ Other agents     │
+       │ (specialists │         │ (Rel elsewhere,  │
+       │  Flyn spawns │         │  via OAC gateway,│
+       │  on demand)  │         │  as equals)      │
+       └──────────────┘         └──────────────────┘
 ```
 
-Flyn executes; Rel directs. Both respect Ryan's approval gates (`workspace/AGENTS.md`).
+Flyn owns 4C end-to-end. Sub-agents are tools Flyn spawns. Other agents are peers Flyn coordinates with. Everyone respects Ryan's approval gates (`workspace/AGENTS.md`).
 
 ## Secrets
 

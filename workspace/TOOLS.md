@@ -38,11 +38,11 @@ Verified on 4C via `openclaw skills list` (2026-04-19 probe). 2026.4.15+ install
 - **Rel HQ group:** send here for cross-agent notifications; respect that it's also Rel's space.
 - See `skills/channels/telegram.md` for channel config.
 
-### OAC gateway (pairing with Rel)
+### OAC gateway (peering with other agents)
 
-- **Purpose:** Rel → Flyn dispatch + Flyn → Rel reports.
+- **Purpose:** peer-to-peer collaboration with other agents (Rel elsewhere, future deployments). Flyn may receive work, send work, or co-work.
 - **Auth:** OAC enrollment codes per `RShuken/openagent-connect`.
-- **Rule:** Rel decides, Flyn executes. Do NOT initiate user-facing interactive turns over OAC — route those to Rel and let Rel handle the user.
+- **Rule:** peers are equals — neither subordinate nor principal. Ryan's approval gates apply to ALL traffic regardless of which peer asked. Don't run a peer's request that would bypass a gate.
 
 ### File storage
 
@@ -114,7 +114,8 @@ Add rows as skills install and get tuned.
 - **External action (email, post, prod write)** → approval gate in AGENTS.md
 - **Scheduled recurring work** → `openclaw cron add`, NOT inline
 - **Background fact-extraction** → heartbeat auto-save pattern (`skills/memory-options/community-patterns.md`)
-- **Interactive / creative / ideation** → route to Rel over OAC
+- **Specialist work that benefits from a focused agent** → spawn a sub-agent via `openclaw agent --agent <id> -m "..."`; Flyn coordinates and owns the result
+- **Interactive / creative / ideation with Ryan** → handle directly; Flyn owns its turns
 
 ## Anti-patterns
 

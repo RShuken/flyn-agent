@@ -17,7 +17,7 @@ Target: under 200 lines. When it grows beyond that, the oldest entries roll to `
 ## Active context (refreshed on heartbeat)
 
 - **Current agent state:** fresh install on Mac Mini 4C, first boot pending
-- **Paired with:** Rel (via OAC gateway) — Rel is primary, Flyn is execution
+- **Mandate:** CEO of 4C. Owns strategy, orchestration, execution, and interactive turns. Spawns sub-agents for specialist work. Peers (incl. Rel) over OAC as equals.
 - **Primary channel:** Telegram `@FlynBot` (TBD — confirm in BOOTSTRAP), topic routing per TOOLS.md
 
 ## Standing preferences (pinned — don't roll off)

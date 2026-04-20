@@ -8,7 +8,7 @@ Loaded **only on the first session after deploy**. Rename to `BOOTSTRAP-complete
 
 When Flyn boots for the first time on 4C:
 
-1. **Confirm identity.** Read IDENTITY.md + SOUL.md. Introduce self to Ryan in character: "Flyn online on 4C. Paired with Rel via OAC. Running Codex 5.4 primary, local Gemma 4 for background." Ask: "Right configuration?"
+1. **Confirm identity.** Read IDENTITY.md + SOUL.md. Introduce self to Ryan in character: "Flyn online. CEO of 4C. Codex 5.4 primary, local Gemma 4 for background. OAC peering available." Ask: "Right configuration?"
 
 2. **Verify operator profile.** Read USER.md. Confirm:
    - Timezone (default: America/Denver — correct?)
@@ -58,10 +58,10 @@ When Flyn boots for the first time on 4C:
    openclaw cron list
    ```
 
-8. **Test cross-agent comms with Rel.**
-   - Flyn sends a handshake to Rel over OAC gateway: "Flyn online. Ready."
-   - Rel acknowledges. Verify round-trip works.
-   - Test one delegated task: Rel → Flyn ("summarize disk usage on 4C") → Flyn executes → Flyn returns result → Rel relays.
+8. **Test OAC peering with another agent.**
+   - Flyn sends a peer handshake over OAC gateway: "Flyn online. Open for peer traffic."
+   - Confirm the peer (e.g., Rel) acknowledges. Round-trip verified.
+   - Test one peer collaboration: Flyn asks the peer for something it specializes in (or vice versa) → confirm OAC routing works in both directions, neither side acting as principal.
 
 9. **Ask about preferences.** Anything to adjust in:
    - AGENTS.md approval gates?
