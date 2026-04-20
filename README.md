@@ -1,50 +1,73 @@
-# openclaw-base
+# flyn-agent
 
-Clean, source-of-truth template library for installing and configuring OpenClaw on a fresh machine.
+Private workspace + config for **Flyn** — Ryan's local execution agent on Mac Mini 4C, paired with **Rel** (primary/personal agent) via the OAC gateway.
 
-## What This Is
+## What this repo is
 
-A publishable base that OpenClaw operators can fork for their own deployments (personal agents, client engagements, internal team bots). It contains:
+A Flyn-specific overlay on top of `openclaw-base` (upstream library):
 
-- The OpenClaw install runbook (per OS)
-- The full skill library (~50 deploy-* skills, plus authoring guides)
-- Identity/Soul/Heartbeat templates with **Codex GPT-5.x as the default model stack** (not Claude/Anthropic)
-- A sanitized reference snapshot of specialized v2 skills from a prior VC-firm engagement — kept as a starting point for custom office deployments, not as the default
+- `workspace/` — Flyn's IDENTITY / SOUL / HEARTBEAT / MEMORY / AGENTS / USER / TOOLS / BOOTSTRAP, ready to copy into `~/.openclaw/workspace/` on 4C
+- `openclaw.json` — Flyn's model stack (Codex GPT-5.4 primary, local Gemma 4 for background) + memory config (Lossless Claw + Gemini 2 embeddings with EmbeddingGemma local fallback + mem0)
+- `deploy/install-memory-stack.md` — ordered runbook for installing the memory layers on 4C
+- `skills/`, `templates/`, `audit/`, `install/` — inherited from `openclaw-base` upstream; Flyn uses these as reference
 
-## What This Is NOT
+## How it relates to openclaw-base
 
-- Not the OAC (OpenAgent Connect) backend — that lives in `RShuken/openagent-connect`
-- Not a marketing site — that's `openclawinstall`
-- Not a place for client profiles or secrets
-- Research baseline is the April 2026 audit (`audit/skill-audit-2026-04-19.md`). Re-verify against current OpenClaw before any production deployment.
+- `openclaw-base` = public source-of-truth library (skills, templates, audit research)
+- `flyn-agent` = private Flyn-specific config on top
 
-## Layout
+The `upstream` git remote points to `openclaw-base`. To pull library updates later:
 
-```
-openclaw-base/
-├── install/                          OS-specific install runbooks
-├── skills/                           Deploy-* skill library (flat, mirrors original layout)
-│   ├── _authoring/                   How to write new skills (read these first)
-│   ├── _archive/                     Older v1s superseded by v2s
-│   └── _enterprise-v2-reference/     Sanitized v2 reference snapshot (REFERENCE ONLY, use placeholders)
-├── templates/                        Scaffolds for IDENTITY/SOUL/HEARTBEAT/openclaw.json
-├── audit/                            Skill audit ledger + research (baseline, model routing, memory options)
-└── catalog.json                      Intent-based skill metadata
+```bash
+git fetch upstream
+git merge upstream/main    # review conflicts in workspace/ and openclaw.json
 ```
 
-## Status
+## Deploying Flyn on 4C
 
-| Phase | What | State |
-|-------|------|-------|
-| 1 | Carve from prior agent workspace + sanitize reference engagement | DONE 2026-04-19 |
-| 2 | Audit every skill against current OpenClaw, Codex-strip pass | DONE 2026-04-20 |
-| 3 | Scrub identifiers, publish to GitHub | DONE 2026-04-20 |
-| 4 | Pull on target machine, run install, verify | per-deployment |
-| 5 | Fork and customize for a named agent deployment | per-deployment |
+See `deploy/install-memory-stack.md` for the memory stack install order. High-level deploy:
 
-## How To Use After Audit
+1. SSH to 4C: `ssh 4c-raw` (needs `zsh -l -c` wrapper per `feedback_ssh_commands`)
+2. Backup existing workspace: `mv ~/.openclaw/workspace ~/.openclaw/workspace.bak-$(date +%Y-%m-%d)`
+3. Clone flyn-agent on 4C (or rsync from laptop)
+4. Copy `workspace/*` → `~/.openclaw/workspace/`
+5. Copy `openclaw.json` → `~/.openclaw/openclaw.json`
+6. Run the memory stack install: `deploy/install-memory-stack.md` steps 0-10
+7. Verify: `openclaw health && openclaw doctor && openclaw models auth list`
+8. First session: Flyn processes `BOOTSTRAP.md` — walk through the checklist with Ryan
+9. Rename `BOOTSTRAP.md` → `BOOTSTRAP-completed-YYYY-MM-DD.md` once checklist is done
 
-1. Read `install/openclaw-install.md` first
-2. Then read `skills/_authoring/_deploy-common.md` for deployment philosophy
-3. Pick skills to deploy in order: identity → security-safety → messaging-setup → memory → then everything else
-4. Every skill has a verification checklist — done is not done until it passes
+## Architecture summary
+
+```
+┌─────────────────────────────────────────────┐
+│   Ryan (operator)                           │
+└───────────────┬─────────────────────────────┘
+                │ Telegram / direct
+                ▼
+┌─────────────────────────────────────────────┐
+│   Rel (primary, interactive, creative)      │
+└───────────────┬─────────────────────────────┘
+                │ OAC gateway
+                ▼
+┌─────────────────────────────────────────────┐
+│   Flyn — Mac Mini 4C                        │
+│   ├── Codex GPT-5.4 primary (OAuth sub)     │
+│   ├── Gemma 4 local (heartbeats/cron)       │
+│   ├── Lossless Claw context engine          │
+│   ├── Gemini 2 embeddings → sqlite-vec      │
+│   ├── mem0 structured memory                │
+│   └── EmbeddingGemma local fallback         │
+└─────────────────────────────────────────────┘
+```
+
+Flyn executes; Rel directs. Both respect Ryan's approval gates (`workspace/AGENTS.md`).
+
+## Secrets
+
+- Never committed. All secrets (Codex OAuth token, Gemini API key, Telegram bot token) live in `~/.openclaw/agents/main/agent/auth-profiles.json` on 4C, which is gitignored from this repo and from the OpenClaw workspace.
+- To re-auth: `openclaw models auth login --provider <name>`
+
+## Upstream
+
+`openclaw-base` (RShuken/openclaw-base) — the public library. Skills, audit research, and templates flow from there.

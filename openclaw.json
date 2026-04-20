@@ -1,0 +1,106 @@
+{
+  "$schema": "https://openclaw.ai/schema/openclaw.json",
+  "_comment": "Flyn — Mac Mini 4C. Codex OAuth subscription primary (flat-rate). Local Ollama/oMLX for heartbeats/cron/background. Gemini 2 preview for embeddings (cloud, quality-first). Lossless Claw in contextEngine slot. EmbeddingGemma local as graceful-degradation fallback. See workspace/IDENTITY.md + deploy/install-memory-stack.md.",
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai-codex/gpt-5.4",
+        "fallbacks": [
+          "openai-codex/gpt-5.4-mini",
+          "openai-codex/gpt-5.4-nano",
+          "openai-codex/gpt-5.3-codex",
+          "openai-codex/gpt-5.3-codex-spark",
+          "openai-codex/gpt-5.2-codex",
+          "openai-codex/gpt-5.2",
+          "openai-codex/gpt-5.1-codex",
+          "openai-codex/gpt-5.1-codex-max",
+          "openai-codex/gpt-5.1-codex-mini",
+          "openai-codex/gpt-5.1",
+          "openai-codex/gpt-5-codex",
+          "openai/gpt-5.4",
+          "openai/gpt-5.4-mini",
+          "openai/o4-mini",
+          "openai/o3"
+        ]
+      },
+      "models": {
+        "openai-codex/gpt-5.4": { "contextTokens": 1050000 },
+        "openai-codex/gpt-5.4-mini": {},
+        "openai-codex/gpt-5.4-nano": {},
+        "openai-codex/gpt-5.3-codex": {},
+        "openai-codex/gpt-5.3-codex-spark": {},
+        "openai-codex/gpt-5.2-codex": {},
+        "openai-codex/gpt-5.2": {},
+        "openai-codex/gpt-5.1-codex": {},
+        "openai-codex/gpt-5.1-codex-max": {},
+        "openai-codex/gpt-5.1-codex-mini": {},
+        "openai-codex/gpt-5.1": {},
+        "openai-codex/gpt-5-codex": {},
+        "openai/gpt-5.4": {},
+        "openai/gpt-5.4-mini": {},
+        "openai/o4-mini": {},
+        "openai/o3": {},
+        "ollama/gemma4:e4b": {
+          "_comment": "Local heartbeat + background model. Default for all non-user-facing turns.",
+          "kind": "local"
+        },
+        "ollama/qwen3:8b": {
+          "_comment": "Alternative local heartbeat model; swap in if Gemma 4 tool-call stability issues.",
+          "kind": "local"
+        }
+      },
+      "heartbeat": {
+        "model": "ollama/gemma4:e4b",
+        "_comment": "Heartbeat calls go to local Gemma 4. Confirmed working on Apple Silicon via Ollama; migrate to oMLX substrate when deploy/install-memory-stack.md step 2 is done."
+      }
+    }
+  },
+  "memory": {
+    "embedding": {
+      "primary": {
+        "provider": "google-gemini",
+        "model": "gemini-embedding-2-preview",
+        "_comment": "Cloud API. #1 MTEB multimodal. Preview status — monitor for GA promotion. Per ai.google.dev/gemini-api/docs/embeddings (verified 2026-04-20)."
+      },
+      "fallbacks": [
+        {
+          "provider": "google-gemini",
+          "model": "gemini-embedding-001",
+          "_comment": "Stable 3072-dim fallback if v2 preview has availability issues."
+        },
+        {
+          "provider": "ollama",
+          "model": "embeddinggemma",
+          "_comment": "LOCAL air-gap fallback — 308M params, Matryoshka to 128. Kicks in if Gemini quota exhausts or 4C is offline."
+        }
+      ]
+    },
+    "contextEngine": {
+      "provider": "lossless-claw",
+      "_comment": "Slot plugin. Sidesteps compaction hallucinations (GitHub openclaw/openclaw#58137, #65218, #66947, #44787). Install per deploy/install-memory-stack.md step 1."
+    },
+    "vectorStore": {
+      "provider": "sqlite-vec",
+      "_comment": "OpenClaw built-in. No reason to replace at Flyn scale."
+    },
+    "structured": {
+      "provider": "mem0",
+      "_comment": "Entity + relationship + preference store. Official OpenClaw integration. Apache 2.0. Install per deploy/install-memory-stack.md step 6."
+    }
+  },
+  "providers": {
+    "openai-codex": {
+      "auth": "oauth-subscription",
+      "_comment": "Subscription OAuth — flat-rate. Re-auth: openclaw models auth login --provider openai-codex. Auth stored at ~/.openclaw/agents/main/agent/auth-profiles.json."
+    },
+    "google-gemini": {
+      "auth": "api-key",
+      "envVar": "GEMINI_API_KEY",
+      "_comment": "Required for gemini-embedding-2-preview. Free tier generous for solo-agent embedding volumes. Secret lives in auth-profiles.json, NOT in this file."
+    },
+    "ollama": {
+      "host": "http://localhost:11434",
+      "_comment": "Local inference. Confirm running: `ollama list`. Models pulled per deploy/install-memory-stack.md."
+    }
+  }
+}
