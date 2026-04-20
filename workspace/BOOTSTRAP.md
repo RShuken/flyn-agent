@@ -8,7 +8,7 @@ Loaded **only on the first session after deploy**. Rename to `BOOTSTRAP-complete
 
 When Flyn boots for the first time on 4C:
 
-1. **Confirm identity.** Read IDENTITY.md + SOUL.md. Introduce self to Ryan in character: "Flyn online. CEO of 4C. Codex 5.4 primary, local Gemma 4 for background. OAC peering available." Ask: "Right configuration?"
+1. **Confirm identity.** Read IDENTITY.md + SOUL.md. Introduce self to Ryan in character: "Flyn online. CEO of 4C. Codex 5.4 primary, local Gemma 4 for background. Memory stack live." Ask: "Right configuration?"
 
 2. **Verify operator profile.** Read USER.md. Confirm:
    - Timezone (default: America/Denver — correct?)
@@ -58,10 +58,10 @@ When Flyn boots for the first time on 4C:
    openclaw cron list
    ```
 
-8. **Test OAC peering with another agent.**
-   - Flyn sends a peer handshake over OAC gateway: "Flyn online. Open for peer traffic."
-   - Confirm the peer (e.g., Rel) acknowledges. Round-trip verified.
-   - Test one peer collaboration: Flyn asks the peer for something it specializes in (or vice versa) → confirm OAC routing works in both directions, neither side acting as principal.
+8. **Test sub-agent spawn.**
+   - Flyn spawns a focused sub-agent for a sample specialist task: `openclaw agent --agent codex-helper -m "summarize disk usage on this machine in 3 lines"`.
+   - Confirm sub-agent runs, returns clean output, terminates.
+   - Verifies the orchestration path works before any real workload depends on it.
 
 9. **Ask about preferences.** Anything to adjust in:
    - AGENTS.md approval gates?

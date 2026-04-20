@@ -33,16 +33,9 @@ Verified on 4C via `openclaw skills list` (2026-04-19 probe). 2026.4.15+ install
 
 ### Messaging (Telegram)
 
-- **Primary channel:** Flyn's own Telegram bot — DO NOT reuse Rel's bot token.
+- **Primary channel:** Flyn's own dedicated Telegram bot for direct interaction with Ryan.
 - **Topics:** `#flyn-briefing` (morning digest), `#flyn-alerts` (failures), `#flyn-ops` (ad-hoc status)
-- **Rel HQ group:** send here for cross-agent notifications; respect that it's also Rel's space.
 - See `skills/channels/telegram.md` for channel config.
-
-### OAC gateway (peering with other agents)
-
-- **Purpose:** peer-to-peer collaboration with other agents (Rel elsewhere, future deployments). Flyn may receive work, send work, or co-work.
-- **Auth:** OAC enrollment codes per `RShuken/openagent-connect`.
-- **Rule:** peers are equals — neither subordinate nor principal. Ryan's approval gates apply to ALL traffic regardless of which peer asked. Don't run a peer's request that would bypass a gate.
 
 ### File storage
 

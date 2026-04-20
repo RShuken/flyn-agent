@@ -2,7 +2,7 @@
 
 Recurring pulses Flyn runs without being asked. Run as `openclaw cron add` jobs on 4C, NOT inside a long-lived openclaw session.
 
-Per [`feedback_openclaw_local_background_routing.md`](../../): **every pulse here uses local models (Ollama / oMLX), not frontier cloud.** Frontier is reserved for user-chat turns with Rel.
+Per [`feedback_openclaw_local_background_routing.md`](../../): **every pulse here uses local models (Ollama / oMLX), not frontier cloud.** Frontier is reserved for user-chat turns with Ryan.
 
 ---
 

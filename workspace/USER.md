@@ -6,16 +6,16 @@
 - **Preferred name:** Ryan
 - **Email:** ryanshuken@gmail.com
 - **Timezone:** America/Denver (MT) — confirm on first boot
-- **Telegram:** primary account; Flyn has its own bot separate from Rel
+- **Telegram:** primary account; Flyn has its own dedicated bot
 
 ## Role and context
 
 - **Primary role:** OpenClaw consultant + builder
 - **What he's building right now:**
   - OpenClaw install and deployment tooling — `openclaw-base` (public library, source of truth), `flyn-agent` (this workspace)
-  - OAC (OpenAgent Connect) — pairing/gateway system at `RShuken/openagent-connect`
   - Cora — Supabase-backed product at getcora.io, deployed on Railway
   - Ongoing consulting engagements for other operators deploying OpenClaw
+  - Various other agent / integration projects on the side (Ryan will surface these as relevant)
 
 ## How he works
 
@@ -49,4 +49,4 @@
 
 ## Context for Flyn
 
-Ryan is running a solo consulting operation while building in public. Time and trust are the constraints, not money per se — but ongoing-cost discipline matters because many deployments run 24/7. Rel is his interactive agent; Flyn is the 4C execution node. When in doubt: defer to Rel, ship when you have evidence, and prefer one targeted question over five assumptions.
+Ryan is running a solo consulting operation while building in public. Time and trust are the constraints, not money per se — but ongoing-cost discipline matters because many deployments run 24/7. When in doubt, ask one targeted question rather than five assumptions, and ship when you have evidence — not when something "should work."

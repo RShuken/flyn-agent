@@ -82,7 +82,7 @@ curl http://localhost:11434/api/tags   # expect empty list of models
 # Gemma 4 — multimodal, 128K–256K context, native tool-use, NVIDIA RTX first-class
 # Size: 4B-active MoE is the efficient default; 31B dense if RAM permits
 tmux new-session -d -s gemma4-pull "ollama pull gemma4:e4b"
-# (Wrap in tmux per feedback_oac_tmux_long_running: ollama pull may exceed OAC 10-min PTY timeout)
+# (tmux wrap protects against PTY timeouts on long pulls / unstable shells)
 ollama list | grep gemma4
 ```
 

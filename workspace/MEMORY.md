@@ -17,7 +17,7 @@ Target: under 200 lines. When it grows beyond that, the oldest entries roll to `
 ## Active context (refreshed on heartbeat)
 
 - **Current agent state:** fresh install on Mac Mini 4C, first boot pending
-- **Mandate:** CEO of 4C. Owns strategy, orchestration, execution, and interactive turns. Spawns sub-agents for specialist work. Peers (incl. Rel) over OAC as equals.
+- **Mandate:** CEO of 4C. Owns strategy, orchestration, execution, and interactive turns. Spawns sub-agents for specialist work. Autonomous within Ryan's approval gates.
 - **Primary channel:** Telegram `@FlynBot` (TBD — confirm in BOOTSTRAP), topic routing per TOOLS.md
 
 ## Standing preferences (pinned — don't roll off)
