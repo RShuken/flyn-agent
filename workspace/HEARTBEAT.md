@@ -17,10 +17,13 @@ Per [`feedback_openclaw_local_background_routing.md`](../../): **every pulse her
 ## Pulse: hourly-memory-auto-save
 
 - **When:** top of every hour during waking hours (06:00–23:00 local)
-- **What:** append a compact rollup of the last hour's session activity to `workspace/memory/YYYY-MM-DD.md`. Pattern per `skills/memory-options/community-patterns.md` heartbeat auto-save.
-- **Model:** local only.
-- **Success:** one appended entry per fire; no duplicate entries.
-- **On failure:** silent if no changes to roll up; alert if write fails twice consecutively.
+- **What:** TWO writes per fire:
+  1. Append a compact prose rollup of the last hour's session activity to `workspace/memory/YYYY-MM-DD.md` (markdown tier).
+  2. POST the same rollup to `http://localhost:8100/api/episode` so Graphiti extracts typed facts into Neo4j (structured tier).
+- **Why both:** markdown stays human-readable + searchable via sqlite-vec; Graphiti extracts typed entities/edges with `valid_at` for temporal queries. Two writes, one source of truth.
+- **Model:** local only (gemma4:e4b runs inside the Graphiti entity-extraction pipeline — the POST blocks while it runs).
+- **Success:** one markdown append + one POST returning `{"ok": true}` per fire; no duplicate entries.
+- **On failure:** silent if no changes to roll up. If the POST fails twice consecutively, check `curl http://localhost:8100/api/health` and the launchd agent `ai.flyn.graphiti-api`. Do the markdown write regardless — the markdown tier is the fallback.
 
 ## Pulse: daily-health-check
 

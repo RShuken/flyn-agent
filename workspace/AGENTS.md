@@ -51,6 +51,57 @@ Actions requiring explicit operator approval — no autonomous execution:
 
 If unsure whether an action needs a gate → treat as if it does.
 
+## Structured memory — flyn-graphiti-api (local REST, called via curl)
+
+A temporal knowledge graph (Graphiti on Neo4j) is running as a **local REST service on `http://localhost:8100`**. It stores typed, time-stamped facts extracted from prose episodes, and supports predicate + temporal queries that flat markdown can't answer. You reach it with `curl` from the exec shell tool — **not via MCP**. The exec tool emits real tool_use blocks that OpenClaw routes correctly; the REST service returns JSON.
+
+**When to use it — rules:**
+
+- **Every meaningful decision, config change, client/project update, or learned fact** → `POST /api/episode` with a concise prose description. Don't wait for a scheduled run; write it in real-time during the turn that produced the fact.
+- **Before answering "what did we decide about X / when did we configure Y / who is Z"** → `GET /api/search?q=...` first. If Graphiti has the answer, use it; if not, fall through to MEMORY.md / workspace/memory/ / lossless-claw's `lcm_grep`.
+- **Temporal questions** ("what happened last week", "list all deployments in April") → `GET /api/temporal?q=...&from=YYYY-MM-DD&to=YYYY-MM-DD`.
+- **Entity disambiguation** ("do we have a Cora record already?") → `GET /api/search?q=Cora` — the fact results include source + target entity UUIDs.
+
+**Memory routing hierarchy** (fastest / cheapest first):
+
+1. `MEMORY.md` — pinned Hot-tier facts. Always in context.
+2. `flyn-graphiti-api` REST — typed + temporal + predicate queries. Use for "who/what/when" lookups.
+3. OpenClaw native `memory search` — semantic recall over workspace/memory/*.md via sqlite-vec + Gemini embeddings. Use when the answer is fuzzy-worded.
+4. Lossless Claw `lcm_grep` / `lcm_describe` / `lcm_expand` — exact recovery of specific turns from compacted conversation history.
+
+Never use frontier cloud to "remember" something that's already in one of these four layers.
+
+**Endpoint patterns** (emit these as shell/exec invocations):
+
+```bash
+# Health check (use if you suspect the service is down)
+curl -sS http://localhost:8100/api/health
+
+# Ingest a fact — body is prose; Graphiti extracts entities + typed edges
+curl -sS -X POST http://localhost:8100/api/episode \
+  -H 'Content-Type: application/json' \
+  -d '{"body": "Flyn switched Cora DNS from Vercel to Railway on 2026-03-25", "name": "cora-dns-switch"}'
+
+# Semantic search — returns edges (typed facts) with valid_at/invalid_at
+curl -sS 'http://localhost:8100/api/search?q=Cora+deployment'
+
+# Temporal filter — only facts valid within the window
+curl -sS 'http://localhost:8100/api/temporal?q=deploy&from=2026-04-01&to=2026-04-30'
+
+# Recent episodes (raw ingested prose)
+curl -sS 'http://localhost:8100/api/episodes?limit=10'
+```
+
+**Ingest timing note:** `POST /api/episode` blocks for 30–120 seconds while local gemma4:e4b runs the entity-extraction pipeline. This is normal. If the POST times out after 10 min, the service is stuck — check `tail /tmp/flyn-graphiti-api.log`.
+
+**Hygiene:**
+- `group_id` is hardcoded to `flyn` in the API — every episode you ingest lands there. Don't try to pass a different group_id.
+- One episode = one coherent fact or event. Avoid ingesting whole conversation dumps; that dilutes retrieval quality.
+- Timestamps: when the fact has an explicit date in the prose ("deployed on 2026-04-21"), Graphiti auto-infers `valid_at`. When it doesn't, ingest time is used. Include dates in the prose when you know them.
+- The service is a launchd agent (`ai.flyn.graphiti-api`), auto-starts at boot, auto-restarts on crash. If it truly won't come back, run: `launchctl kickstart -k gui/$(id -u)/ai.flyn.graphiti-api`.
+
+**Architectural note:** We deliberately chose REST + curl over OpenClaw's MCP registration. Rationale: OpenClaw's MCP-to-agent-turn integration doesn't reliably surface MCP tools to the model's tool list (agent hallucinates the call). The exec / shell tool surface works perfectly. This is the same pattern Edge (Dan Caruso's agent) uses in production. See `feedback_openclaw_agent_mcp_invocation_gap.md` and `feedback_graphiti_neo4j_openclaw_working_recipe.md` in persistent memory for the full investigation.
+
 ## Failure modes
 
 - **Missing auth profile:** on 401/403, check `~/.openclaw/agents/main/agent/auth-profiles.json`. Do NOT attempt Keychain migration (see IDENTITY + `_deploy-common.md`).
