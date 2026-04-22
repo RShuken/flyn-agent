@@ -88,7 +88,7 @@ def _loop_runner():
 threading.Thread(target=_loop_runner, daemon=True).start()
 
 
-def run_async(coro, timeout=600):
+def run_async(coro, timeout=1800):
     return asyncio.run_coroutine_threadsafe(coro, _loop).result(timeout=timeout)
 
 

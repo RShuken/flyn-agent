@@ -32,21 +32,40 @@ alert_telegram() {
 
 # Post an episode to Flyn's Graphiti KG.
 #   kg_add_episode <name> <episode_body>
+# On failure, dumps the body + response to LOG_DIR/kg-failed/ so the root cause
+# of library-level errors (e.g., graphiti-core pydantic NodeResolutions bug) can
+# be inspected later. Timeout matches server-side run_async(timeout=1800).
 kg_add_episode() {
   local name="$1"
   local body="$2"
   local resp
-  resp="$(curl -sS --max-time 600 -X POST "${KG_API}/api/episode" \
+  resp="$(curl -sS --max-time 1800 -X POST "${KG_API}/api/episode" \
     -H 'Content-Type: application/json' \
     -d "$(python3 -c 'import json,sys; n,b=sys.argv[1:]; print(json.dumps({"name":n,"body":b}))' "$name" "$body")" \
-    2>&1)" || { log "kg_add_episode curl failed: $resp"; return 1; }
+    2>&1)" || {
+      log "kg_add_episode curl failed: $resp"
+      _kg_capture_failure "$name" "$body" "curl-error: $resp"
+      return 1
+    }
   if echo "$resp" | grep -q '"ok":true'; then
     log "kg_add_episode OK: $name"
     return 0
   else
     log "kg_add_episode NOT OK: $resp"
+    _kg_capture_failure "$name" "$body" "$resp"
     return 1
   fi
+}
+
+_kg_capture_failure() {
+  local name="$1" body="$2" resp="$3"
+  local fail_dir="${LOG_DIR}/kg-failed"
+  local ts="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+  mkdir -p "$fail_dir"
+  local stem="${fail_dir}/${ts}_${name//[^A-Za-z0-9._-]/_}"
+  printf '%s' "$body" > "${stem}.body.txt"
+  printf '%s' "$resp" > "${stem}.response.txt"
+  log "captured failing ingest at ${stem}.{body,response}.txt"
 }
 
 # Call local gemma4:e4b for a short summarization. Stdin → stdout.
