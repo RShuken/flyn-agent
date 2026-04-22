@@ -179,7 +179,13 @@ if [[ ! -d "$VENV_DIR" ]]; then
   python3 -m venv "$VENV_DIR"
 fi
 "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
-"$VENV_DIR/bin/pip" install "graphiti-core[google-genai]>=0.28.2" flask >/dev/null
+# Prefer pinned lock file for reproducibility; fall back to unpinned install
+# so a fresh clone without a lock file still works.
+if [[ -f "$REPO_ROOT/deploy/kg/requirements-lock.txt" ]]; then
+  "$VENV_DIR/bin/pip" install -r "$REPO_ROOT/deploy/kg/requirements-lock.txt" >/dev/null
+else
+  "$VENV_DIR/bin/pip" install "graphiti-core[google-genai]>=0.28.2" flask >/dev/null
+fi
 ok "venv + deps ready"
 
 # --- 5. REST wrapper + launchd ---
@@ -217,7 +223,10 @@ openclaw config set agents.defaults.heartbeat.suppressToolErrorWarnings true --s
 openclaw config set "agents.defaults.models.ollama/gemma4:e4b" '{}' --strict-json
 openclaw config set agents.defaults.memorySearch.provider gemini
 openclaw config set agents.defaults.memorySearch.fallback local
-openclaw config set agents.defaults.memorySearch.model gemini-embedding-001
+# OpenClaw memory search uses gemini-embedding-2-preview (MTEB-leading multimodal).
+# Graphiti's REST wrapper independently uses gemini-embedding-001 (stable) — see
+# deploy/kg/flyn-graphiti-api.py. This two-embedder split is intentional.
+openclaw config set agents.defaults.memorySearch.model gemini-embedding-2-preview
 openclaw config validate && ok "config valid"
 
 # --- 8. workspace files ---
@@ -225,8 +234,13 @@ log "8. Deploy workspace/*.md"
 rsync -a "$REPO_ROOT/workspace/" "$OC_WORKSPACE/"
 ok "workspace files synced"
 
-# --- 9. Gateway restart ---
-log "9. Gateway restart"
+# --- 9. Register launchd pulses (heartbeats + warm-at-boot) ---
+log "9. Register launchd pulses"
+"$REPO_ROOT/deploy/cron/register-flyn-crons.sh"
+ok "launchd pulses registered"
+
+# --- 10. Gateway restart ---
+log "10. Gateway restart"
 launchctl kickstart -k "gui/$(id -u)/ai.openclaw.gateway" || die "failed to restart gateway"
 sleep 6
 openclaw health | head -6 || true
@@ -237,7 +251,6 @@ ok "Flyn install complete."
 echo
 echo "Next steps:"
 echo "  - Process BOOTSTRAP.md on Flyn's first session"
-echo "  - Register cron jobs per HEARTBEAT.md (openclaw cron add …)"
 echo "  - Seed initial facts into Graphiti via curl → POST /api/episode"
 echo
 echo "Verify:"

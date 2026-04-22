@@ -22,7 +22,9 @@ Flyn — Mac Mini 4C (OpenClaw 2026.4.15)
    ├── Primary:          openai-codex/gpt-5.4  (OAuth subscription, flat-rate)
    ├── Background:       ollama/gemma4:e4b     (local Metal, ~11 GB when hot, idle-unloads)
    ├── Context engine:   Lossless Claw plugin  (plugins.slots.contextEngine)
-   ├── Embeddings:       Gemini API (gemini-embedding-001)  + local EmbeddingGemma fallback
+   ├── Embeddings:       OpenClaw memory: gemini-embedding-2-preview (cloud)
+   │                     Graphiti REST:   gemini-embedding-001 (cloud, stable)
+   │                     Local fallback:  EmbeddingGemma (via openclaw built-in)
    ├── Vector store:     sqlite-vec (built-in)
    └── Structured KG:    Graphiti + Neo4j  behind  Flask REST @ localhost:8100
                          ↑ called by agent via curl from exec tool (NOT via MCP)
@@ -71,12 +73,13 @@ The script is idempotent — safe to re-run. It:
 2. Pulls `gemma4:e4b` (9.6 GB).
 3. Bootstraps auth profiles: `ollama:default`, prompts for Gemini key, generates Neo4j password.
 4. Starts Neo4j 5.26 in Docker with 1 GB heap cap, persistent volumes under the workspace.
-5. Creates the Graphiti Python venv + installs `graphiti-core[google-genai] + flask`.
+5. Creates the Graphiti Python venv + installs from `deploy/kg/requirements-lock.txt` (falls back to unpinned `graphiti-core[google-genai] + flask` if the lock file is missing).
 6. Deploys the REST wrapper + launchd plist; starts the service.
 7. Installs Lossless Claw plugin (`@martian-engineering/lossless-claw`).
-8. Additively sets OpenClaw config for heartbeat + memorySearch + models allowlist.
+8. Additively sets OpenClaw config: heartbeat model, memorySearch (Gemini `gemini-embedding-2-preview` with local fallback), adds `gemma4:e4b` to the models allowlist, pins the context engine to `lossless-claw`.
 9. Rsyncs `workspace/*.md` into `~/.openclaw/workspace/`.
-10. Restarts the gateway.
+10. Registers launchd pulses (5 heartbeats + `gemma4-warm-at-boot`) via `deploy/cron/register-flyn-crons.sh`.
+11. Restarts the gateway.
 
 On first session after install, Flyn runs the `workspace/BOOTSTRAP.md` checklist interactively with Ryan.
 
@@ -114,5 +117,5 @@ Required profiles after install:
 | 2. Workspace files (IDENTITY/SOUL/HEARTBEAT/etc) | DONE |
 | 3. Live install on 4C (Lossless Claw, Gemma 4, Gemini, Neo4j, Graphiti REST, launchd) | DONE 2026-04-21 |
 | 4. Agent successfully uses structured KG via curl-from-exec | PROVEN 2026-04-21 |
-| 5. Memory seeding + cron registration | PENDING (BOOTSTRAP.md steps 5, 8) |
+| 5. Memory seeding + cron registration (launchd, 5 pulses + warm-at-boot) | DONE 2026-04-21 |
 | 6. Daily use + refinements based on what Flyn learns | ongoing |

@@ -100,6 +100,34 @@ write_plist_hourly_range() {
   ok "${label} (hours ${h_start}-${h_end}:00)"
 }
 
+# Helper: plist that fires once at login/boot (RunAtLoad=true, no schedule).
+# Used for warm-at-boot-style jobs that prime a resource and exit.
+write_plist_run_at_load() {
+  local label="$1" script="$2"
+  local plist="${LAUNCH_DIR}/${label}.plist"
+  {
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+    echo '<plist version="1.0"><dict>'
+    echo "  <key>Label</key><string>${label}</string>"
+    echo '  <key>ProgramArguments</key><array>'
+    echo "    <string>/bin/bash</string><string>${SCRIPTS_DIR}/${script}</string>"
+    echo '  </array>'
+    echo '  <key>EnvironmentVariables</key><dict>'
+    echo "    <key>HOME</key><string>${HOME}</string>"
+    echo "    <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>"
+    echo '  </dict>'
+    echo '  <key>RunAtLoad</key><true/>'
+    echo '  <key>KeepAlive</key><false/>'
+    echo "  <key>StandardOutPath</key><string>${LOG_DIR}/cron-${label}.log</string>"
+    echo "  <key>StandardErrorPath</key><string>${LOG_DIR}/cron-${label}.err</string>"
+    echo '</dict></plist>'
+  } > "$plist"
+  launchctl bootout "gui/${UID_NUM}/${label}" 2>/dev/null || true
+  launchctl bootstrap "gui/${UID_NUM}" "$plist"
+  ok "${label} (RunAtLoad, one-shot)"
+}
+
 # Helper: plist with array of StartCalendarInterval across weekdays (for morning-digest)
 write_plist_weekdays() {
   local label="$1" script="$2" hour="$3" minute="$4"
@@ -136,16 +164,17 @@ write_plist_weekdays() {
 }
 
 # 2. Register each pulse
-log "registering 5 flyn pulses as launchd agents"
+log "registering 5 flyn pulses + warm-at-boot as launchd agents"
 write_plist_weekdays     "ai.flyn.pulse.morning-digest"   "morning-digest.sh"   7  0
 write_plist_hourly_range "ai.flyn.pulse.memory-autosave"  "memory-autosave.sh"  6 23
 write_plist_once         "ai.flyn.pulse.health-check"     "health-check.sh"    22  0
 write_plist_once         "ai.flyn.pulse.memory-rollup"    "memory-rollup.sh"   20  0  0   # Sunday
 write_plist_once         "ai.flyn.pulse.model-drift"      "model-drift.sh"     21  0  0   # Sunday
+write_plist_run_at_load  "ai.flyn.gemma4-warm-at-boot"    "gemma4-warm-at-boot.sh"
 
 echo
 log "loaded launchd agents:"
-launchctl list | awk '/ai\.flyn\.pulse/{print "  " $3}'
+launchctl list | awk '/ai\.flyn\.(pulse|gemma4-warm-at-boot)/{print "  " $3}'
 
 echo
 ok "registration complete. Logs under ${LOG_DIR}/cron-<label>.{log,err}"

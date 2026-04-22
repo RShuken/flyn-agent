@@ -73,14 +73,25 @@ Assumes `deploy/install-flyn.sh` from the flyn-agent repo has already been run. 
    - The channel it posts to exists (`#flyn-briefing`, `#flyn-alerts`)
    - The Graphiti REST is reachable for auto-ingest
 
-8. **Register cron jobs** per HEARTBEAT.md (skip if already done by `install-flyn.sh`):
+8. **Verify launchd pulses are registered** (done by `install-flyn.sh`, but confirm):
    ```bash
-   openclaw cron add --name flyn-morning-digest --cron "0 7 * * 1-5" --command "~/.openclaw/scripts/morning-digest.sh"
-   openclaw cron add --name flyn-hourly-memory-save --cron "0 6-23 * * *" --command "~/.openclaw/scripts/memory-autosave.sh"
-   openclaw cron add --name flyn-daily-health --cron "0 22 * * *" --command "~/.openclaw/scripts/health-check.sh"
-   openclaw cron add --name flyn-weekly-rollup --cron "0 20 * * 0" --command "~/.openclaw/scripts/memory-rollup.sh"
-   openclaw cron list
+   launchctl list | awk '/ai\.flyn\.(pulse|gemma4-warm-at-boot)/{print $3}'
+   # Expect 6 labels:
+   #   ai.flyn.pulse.morning-digest
+   #   ai.flyn.pulse.memory-autosave
+   #   ai.flyn.pulse.health-check
+   #   ai.flyn.pulse.memory-rollup
+   #   ai.flyn.pulse.model-drift
+   #   ai.flyn.gemma4-warm-at-boot
    ```
+
+   Scripts live at `~/.openclaw/scripts/flyn/*.sh`; logs at
+   `~/.openclaw/logs/cron-<label>.{log,err}`. To re-register or repair:
+   `./deploy/cron/register-flyn-crons.sh` from the repo root.
+
+   Cron is deliberately NOT wired through `openclaw cron add` — see the header
+   comment in `register-flyn-crons.sh` for the rationale (SSH Full-Disk-Access
+   friction + these are shell scripts that don't need agent-turn intermediation).
 
 9. **Smoke-test the curl-from-exec pattern.** This verifies Flyn can actually use structured memory live (not just via setup scripts). Ask Flyn:
    > "Record that we just completed the Flyn bootstrap by posting an episode via the REST API, then confirm with a search."

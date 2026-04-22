@@ -14,7 +14,9 @@ Flyn — CEO of Mac Mini 4C (OpenClaw 2026.4.15)
    ├── Primary model:  openai-codex/gpt-5.4 via OAuth subscription  (cost: flat-rate)
    ├── Background:     ollama/gemma4:e4b (11 GB Metal, ~4 min idle unload)
    ├── Context engine: Lossless Claw plugin (Martian-Engineering 0.9.2) in contextEngine slot
-   ├── Embeddings:     Google Gemini (gemini-embedding-001) — cloud
+   ├── Embeddings:     OpenClaw memory:   Gemini (gemini-embedding-2-preview) — cloud
+   │                   Graphiti REST:     Gemini (gemini-embedding-001)        — cloud
+   │                   (two-embedder split — see install-flyn.sh step 7 note)
    ├── Local fallback: EmbeddingGemma 300M via OpenClaw native GGUF path
    ├── Vector store:   built-in sqlite-vec
    └── Structured KG:  Graphiti + Neo4j behind Flask REST on localhost:8100
@@ -162,21 +164,44 @@ Every step is idempotent and safe to re-run.
 ├── agents/main/agent/
 │   └── auth-profiles.json                (6 profiles: anthropic, codex, gemini, google, ollama, neo4j)
 ├── extensions/
-│   └── lossless-claw/                    (plugin bundle)
+│   └── lossless-claw/                    (plugin bundle, contextEngine slot)
+├── scripts/flyn/                         (cron/heartbeat scripts — installed by register-flyn-crons.sh)
+│   ├── common.sh
+│   ├── morning-digest.sh
+│   ├── memory-autosave.sh
+│   ├── health-check.sh
+│   ├── memory-rollup.sh
+│   ├── model-drift.sh
+│   └── gemma4-warm-at-boot.sh
+├── logs/                                 (heartbeat logs + cron-<label>.{log,err} + kg-failed/)
 └── workspace/
     ├── IDENTITY.md, SOUL.md, HEARTBEAT.md, MEMORY.md
     ├── AGENTS.md, USER.md, TOOLS.md, BOOTSTRAP.md
-    ├── memory/                           (daily markdown)
+    ├── memory/                           (daily markdown + weekly/ + structured/)
     ├── kg/
-    │   └── flyn-graphiti-api.py          (Flask REST wrapper)
+    │   └── flyn-graphiti-api.py          (Flask REST wrapper, byte-identical to repo copy)
     └── memory/structured/
-        ├── graphiti-venv/                (Python venv)
-        ├── graphiti-repo/                (upstream for reference only, not on path)
-        └── neo4j/{data,logs}/            (Docker volumes)
+        ├── graphiti-venv/                (Python venv, pinned via requirements-lock.txt)
+        ├── graphiti-repo/                (upstream clone, reference only — vestigial from MCP experiment)
+        ├── neo4j/{data,logs}/            (Docker volumes)
+        ├── requirements-lock.txt         (source-of-truth for venv pins; also at deploy/kg/ in repo)
+        ├── flyn-graphiti-launch.sh       (vestigial MCP stdio launcher, unused; safe to delete)
+        └── flyn-graphiti-config.yaml     (vestigial MCP config, unused; safe to delete)
 
 ~/Library/LaunchAgents/
-└── ai.flyn.graphiti-api.plist            (auto-start + auto-restart)
+├── ai.flyn.graphiti-api.plist                    (Flask REST on :8100, KeepAlive)
+├── ai.flyn.pulse.morning-digest.plist            (weekdays 07:00)
+├── ai.flyn.pulse.memory-autosave.plist           (hourly 06:00–23:00)
+├── ai.flyn.pulse.health-check.plist              (daily 22:00)
+├── ai.flyn.pulse.memory-rollup.plist             (Sundays 20:00)
+├── ai.flyn.pulse.model-drift.plist               (Sundays 21:00)
+└── ai.flyn.gemma4-warm-at-boot.plist             (RunAtLoad, one-shot, primes gemma4:e4b)
 ```
+
+**Vestigial MCP scaffolding** (`graphiti-repo/`, `flyn-graphiti-launch.sh`,
+`flyn-graphiti-config.yaml`) is left on disk from the abandoned MCP experiment.
+Nothing launches it; it's safe to delete but not included in `install-flyn.sh`
+cleanup since it's ~30 MB and causes no runtime issue.
 
 ---
 
