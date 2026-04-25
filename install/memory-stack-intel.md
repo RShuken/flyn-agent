@@ -137,6 +137,19 @@ OpenClaw's built-in memory indexer crawls `~/.openclaw/workspace/` recursively. 
 
 Fix on Nicolas (2026-04-25): `mv ~/.openclaw/workspace/memory/{mem0,structured} ~/.openclaw/data/`, patched chroma path in `mem0/config.py`, `openclaw memory index --force`. Index is back to **2 files / 2 chunks** (just `USER.md` + `2026-04-25.md`); searches now return Nicolas's actual content with sane scores (0.476 for "Nicolas").
 
+### Graphiti + FalkorDB — ✅ deployed (2026-04-25, after Docker installed)
+
+- Docker 27.1.1 reachable at `/usr/local/bin/docker`. Started FalkorDB:
+  ```
+  docker run -d --name flyn-falkordb --restart unless-stopped \
+    --memory 1g --memory-reservation 512m \
+    -p 127.0.0.1:6379:6379 -p 127.0.0.1:3000:3000 \
+    -v $HOME/.openclaw/data/falkordb:/data falkordb/falkordb:latest
+  ```
+- Added `[falkordb]` extra to existing uv venv at `~/.openclaw/data/structured/graphiti/venv/`.
+- Smoke test (`deploy/memory-intel/graphiti-falkordb-smoke.py`) — `build OK`, `add OK`, `search results: 3`. Graphiti extracted three typed facts from a natural-language episode and retrieved them by semantic search. Multi-tenant `group_id="nicolas"` works (no `_database` regression — that one was Kuzu-specific).
+- **This is now the recommended Graphiti backend on Intel.** Use Kuzu only if Docker is forbidden on the host AND you can live with broken search.
+
 ### Graphiti + Kuzu — ❌ blocked by upstream regressions (see "Kuzu" section above)
 - Tried via `uv` (Python 3.12 + venv, since system Python is 3.9 < graphiti's 3.10 minimum).
 - `pip install "graphiti-core[kuzu]" "graphiti-core[google-genai]"` → installs cleanly. `import KuzuDriver` works. `kuzu 0.11.3` working.
