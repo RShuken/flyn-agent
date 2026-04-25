@@ -140,7 +140,7 @@ These steps from `deploy/install-flyn.sh` are **Apple-Silicon-only** — skip th
 - **Homebrew (attempt 1, git clone):** ❌ Blocked — `xcode-select` GUI dialog can't be answered remotely.
 - **Homebrew (attempt 2, tarball fallback):** ✅ `~/homebrew/bin/brew --version → Homebrew >=4.3.0 (shallow or no git repository)`. Binary works for `brew --version`, but **shallow brew can't tap, update, or install** without git. Useful only as a placeholder until CLT is in place.
 - **Xcode Command Line Tools install:** Triggered manually by an admin on Nicolas's side at 2026-04-25 ~17:42 UTC, ETA ~16 min. Once it finishes, redo: (1) `git clone --depth=1 https://github.com/Homebrew/brew ~/homebrew`, (2) `openclaw doctor --fix --non-interactive --yes` to pull `node-edge-tts` + `libsignal-node`.
-- **Heartbeat decision:** Default heartbeat config left as-is (no model auth yet). Plan: `gemini/gemini-2.5-flash` once a Gemini API key is configured for `Didi`'s account. Do **not** use `ollama/gemma4:e4b` — Mac mini 7,1 has no Metal accel.
+- **Heartbeat decision:** ✅ Set to `gemini/gemini-2.5-flash` after Gemini key was provisioned (2026-04-25). Wrote `auth-profiles.json` with `google:default` + `gemini:default` aliases plus `google-places:default`, chmod 600. Direct curl test of the key returned HTTP 200. `openclaw config validate` → `Config valid`. Confirmed: do **not** use `ollama/gemma4:e4b` on Intel — Mac mini 7,1 has no Metal accel.
 
 ## Admin / non-admin user paths
 
