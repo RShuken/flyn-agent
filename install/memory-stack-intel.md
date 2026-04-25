@@ -123,11 +123,19 @@ If Nicolas is **not** an Obsidian user already, skip this layer for now — Loss
 - `openclaw memory status --json` reports `provider=gemini`, `model=gemini-embedding-001`, `vector` block populated.
 
 ### mem0 — ✅ deployed
-- Path: `~/.openclaw/workspace/memory/mem0/`
+- **Path:** `~/.openclaw/data/mem0/` ⚠ **NOT** under `~/.openclaw/workspace/`. See "Workspace pollution" below.
 - Created venv with system Python 3.9 (mem0 supports it). Installed `mem0ai 2.0.0` + `google-genai` + `chromadb`.
-- Config: Gemini for both LLM (`gemini-2.5-flash`) and embeddings (`gemini-embedding-001`); chroma vector store at `~/.openclaw/workspace/memory/mem0/store/`.
+- Config: Gemini for both LLM (`gemini-2.5-flash`) and embeddings (`gemini-embedding-001`); chroma vector store at `~/.openclaw/data/mem0/store/`.
 - Smoke test: `m.add("Nicolas Aubert lives in France and uses an Intel Mac mini.", user_id="nicolas")` → mem0 split into 2 atomic facts; `m.search("What computer does Nicolas use?", filters={"user_id":"nicolas"})` returned both, ranked by similarity.
 - ⚠ Note: `search()` API in mem0 v2 dropped top-level `user_id`; must use `filters={"user_id":...}`.
+
+### ⚠ Workspace pollution — DO NOT install Python venvs under `~/.openclaw/workspace/`
+
+OpenClaw's built-in memory indexer crawls `~/.openclaw/workspace/` recursively. Originally I dropped the mem0 venv at `~/.openclaw/workspace/memory/mem0/venv/`, which inflated the index from 2 files / 2 chunks of real memory to **43 files / 97 chunks** of pip vendor LICENSE.md files (idna, MT19937, etc.). `openclaw memory search "Nicolas"` returned BSD-3 license boilerplate instead of his actual bootstrap notes.
+
+**Rule:** any venv, `node_modules`, large data file, model checkpoint, or Docker volume goes under **`~/.openclaw/data/`**, never under `workspace/`. The workspace is for human-edited markdown + memory the agent should reason over.
+
+Fix on Nicolas (2026-04-25): `mv ~/.openclaw/workspace/memory/{mem0,structured} ~/.openclaw/data/`, patched chroma path in `mem0/config.py`, `openclaw memory index --force`. Index is back to **2 files / 2 chunks** (just `USER.md` + `2026-04-25.md`); searches now return Nicolas's actual content with sane scores (0.476 for "Nicolas").
 
 ### Graphiti + Kuzu — ❌ blocked by upstream regressions (see "Kuzu" section above)
 - Tried via `uv` (Python 3.12 + venv, since system Python is 3.9 < graphiti's 3.10 minimum).
