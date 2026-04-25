@@ -172,6 +172,6 @@ Fix on Nicolas (2026-04-25): `mv ~/.openclaw/workspace/memory/{mem0,structured} 
 | Embeddings | ✅ `gemini-embedding-001` cloud | `agents.defaults.memorySearch.{provider,model}` |
 | Context engine | ✅ Lossless Claw 0.9.2 | `~/.openclaw/extensions/lossless-claw/` |
 | Built-in memory | ✅ sqlite-vec + Gemini | `openclaw memory ...` |
-| Structured memory | ✅ mem0 v2.0.0 | `~/.openclaw/workspace/memory/mem0/` |
-| Typed/temporal KG | ❌ blocked (Graphiti+Kuzu regressions) | revisit with FalkorDB+Docker or upstream fix |
+| Structured memory | ✅ mem0 v2.0.0 | `~/.openclaw/data/mem0/` |
+| Typed/temporal KG | ✅ Graphiti + FalkorDB | `~/.openclaw/data/structured/graphiti/venv/`, `flyn-falkordb` Docker on `127.0.0.1:6379` |
 | Notes / second brain | 🟡 not deployed | available via `obsidian-mcp-server` if Nicolas adopts Obsidian |
