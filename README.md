@@ -1,5 +1,9 @@
 # flyn-agent
 
+> **Branch: `tune-outdoor`** — fork of `main` customized for the **Chet** deploy at Tune Outdoor (client engagement with Kristian Arnold, May 2026). The agent persona files in `workspace/` (IDENTITY, SOUL, USER, MEMORY, HEARTBEAT, AGENTS, TOOLS, BOOTSTRAP) describe **Chet** — a project-management EA for the Tune Outdoor team. The deploy script (`deploy/install-flyn.sh`) and service-layer identifiers (`flyn-neo4j`, `ai.flyn.*` launchd labels, Graphiti `group_id="flyn"`, `~/.openclaw/scripts/flyn/`) intentionally retain `flyn-*` names — that's the proven, tested service infrastructure. Renaming the service layer is a follow-up commit; nothing user-facing reads those identifiers. Operator profile and connect one-liner: `openagent-connect/clients/tune-outdoor.md`. **Pending integration:** Google Chat is the team's intended primary channel — no off-the-shelf OpenClaw plugin exists; Telegram-primary at deploy, Google Chat to be wired in as a follow-up.
+
+---
+
 Private deploy repo for **Flyn** — Ryan's CEO of Mac Mini 4C.
 
 Fully validated end-to-end on 2026-04-21. This repo carries:

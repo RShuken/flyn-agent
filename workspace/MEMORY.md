@@ -1,32 +1,33 @@
-# MEMORY — Flyn (Hot tier)
+# MEMORY — Chet (Hot tier)
 
-**SECURITY GATE:** This file is loaded ONLY in main-session or trusted DM context. NEVER in group chat or sub-agent context. See `AGENTS.md` session-type routing.
+**SECURITY GATE:** This file is loaded ONLY in main-session or trusted DM context. NEVER in group chat, public Google Chat space, or sub-agent context. See `AGENTS.md` session-type routing.
 
-Target: under 200 lines. When it grows beyond that, the oldest entries roll to `workspace/memory/warm/YYYY-WW.md` (weekly) and ultimately to `workspace/memory/cold/YYYY-MM.md` (monthly). See `../skills/memory-options/community-patterns.md` for the Hot/Warm/Cold pattern.
+Target: under 200 lines. Older entries roll to `workspace/memory/warm/YYYY-WW.md` (weekly) and ultimately `workspace/memory/cold/YYYY-MM.md` (monthly). See upstream `flyn-agent` `skills/memory-options/community-patterns.md` for the Hot/Warm/Cold pattern.
 
 ---
 
 ## Index of long-term memory files
 
-*(This index is maintained by the weekly rollup pulse. Add pointers here as memory grows.)*
+*(Maintained by the weekly rollup pulse. Add pointers here as memory grows.)*
 
 - `workspace/memory/warm/` — daily files older than 1 week
 - `workspace/memory/cold/` — weekly rollups older than 1 month
-- `workspace/memory/structured/` — mem0 entity + relationship store (queried via `openclaw memory search`, not read as files)
+- `workspace/memory/structured/` — Graphiti + Neo4j (queried via REST on `localhost:8100`, not read as files)
 
 ## Active context (refreshed on heartbeat)
 
-- **Current agent state:** fresh install on Mac Mini 4C, first boot pending
-- **Mandate:** CEO of 4C. Owns strategy, orchestration, execution, and interactive turns. Spawns sub-agents for specialist work. Autonomous within Ryan's approval gates.
-- **Primary channel:** Telegram `@FlynBot` (TBD — confirm in BOOTSTRAP), topic routing per TOOLS.md
+- **Current agent state:** fresh install on Tune Outdoor's Mac on 2026-05-08, first boot pending
+- **Mandate:** project-management EA for the Tune Outdoor team. Coordination, recurring ops, task tracking.
+- **Primary channel:** Telegram bot (TBD — confirm in BOOTSTRAP). Google Chat is the long-term primary, pending integration build.
 
 ## Standing preferences (pinned — don't roll off)
 
-- Local-first for background; frontier cloud only for user-chat turns
-- Codex OAuth subscription is the cost path — never pay-per-token default
-- No auto-Keychain migration under launch-agent setup (64-hour outage lesson)
-- Research-first + primary sources + evidence-based completion
-- Always local → dev → prod (never auto-merge without go-ahead)
+- Multi-user environment — discretion across team-member threads
+- Local-first for background work; frontier cloud only for live user turns
+- OpenAI Codex OAuth subscription is the cost path — never pay-per-token default
+- No auto-Keychain migration under launch-agent setup (64-hour outage lesson inherited from upstream Flyn deploy)
+- Sandbox / test → live (never auto-modify production data without go-ahead)
+- Evidence-based reporting (no "should be done")
 
 ## Recent activity
 
