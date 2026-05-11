@@ -44,14 +44,66 @@ SECTION_HEADER = re.compile(r"^##\s+([A-Z])\.\s+(.+?)\s*$")
 QUESTION_ROW = re.compile(
     r"^\|\s*([A-Z]\.\d+)\s*\|\s*(.+?)\s*\|\s*([\w/?\- ]+)\s*\|\s*(.+?)\s*\|\s*$"
 )
+# Section N uses a different 4-column format:
+#   | id | conflict description | sources | resolution question |
+N_ROW = re.compile(
+    r"^\|\s*(N\.\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$"
+)
 ASK_SPLIT = re.compile(r"\*\*Q:\*\*\s*(.+)$", re.DOTALL)
 XREF = re.compile(r"\b([A-Z]\.\d+)\b")
 
-# Stakeholder inference — when source codes / wording strongly imply who answers
-OWNER_HEURISTICS = [
-    (re.compile(r"\bRebecca\b|XL:Overview & Legend|XL:Decision Rules", re.IGNORECASE), "Rebecca Patterson"),
-    (re.compile(r"\bGreta\b|brand|mockup|color|palette|Canva", re.IGNORECASE), "Greta Phillips Kendall"),
-    (re.compile(r"\bSarah\b|contract|launch|business|priority", re.IGNORECASE), "Sarah Scott Frank"),
+# Section O is a materials checklist, not questions. Skip during parsing.
+SKIP_SECTIONS = {"O"}
+
+# Per-section default owner. A per-question text heuristic (below) can override
+# this — used when the question wording or source codes strongly imply a
+# different stakeholder. Defaults map section purpose to the most-frequently-
+# responsible OL stakeholder.
+SECTION_DEFAULT_OWNER = {
+    "A": "Rebecca Patterson",       # Initial Phonics Skills Survey
+    "B": "Rebecca Patterson",       # Skill Transition & Pre-Assessment
+    "C": "Rebecca Patterson",       # Core Lesson Pathways
+    "D": "Rebecca Patterson",       # Remediation Logic
+    "E": "Rebecca Patterson",       # Progress Monitoring
+    "F": "Rebecca Patterson",       # Foundations Mastery & NN
+    "G": "Rebecca Patterson",       # Roots / Level Zero (EL)
+    "H": "Rebecca Patterson",       # Group Sessions (operational)
+    "I": "Greta Phillips Kendall",  # Learning Plan View (Educator UI)
+    "J": "Rebecca Patterson",       # Time-in-Lesson Structure
+    "K": "Greta Phillips Kendall",  # Brand & Experience
+    "L": "Eric Schneider",          # AI Generation Frontier (technical)
+    "M": "Eric Schneider",          # Data / Schema Gaps (technical)
+    "N": "Sarah Scott Frank",       # Source-of-Truth Conflicts (CEO adjudicates)
+    "P": "Rebecca Patterson",       # Group Assessment Cadence (architectural)
+}
+
+# Per-question heuristics. Stronger signals first.
+#
+# Tier 1: Direct person mention in question text → that person owns it.
+#   This is the strongest override of the section default.
+# Tier 2: Topic-specific keywords that are unambiguous regardless of section.
+#   E.g. "print layout" is Greta's domain even if it appears in a curriculum
+#   section. We deliberately keep these narrow — source-code matches like
+#   "K:6" or "XL:Decision Rules" are NOT used here, since those describe the
+#   artifact a question references, not who decides it.
+NAME_MENTION = [
+    (re.compile(r"\bGreta\b", re.IGNORECASE), "Greta Phillips Kendall"),
+    (re.compile(r"\bSarah\b", re.IGNORECASE), "Sarah Scott Frank"),
+    (re.compile(r"\bRebecca\b", re.IGNORECASE), "Rebecca Patterson"),
+    (re.compile(r"\bEric\b", re.IGNORECASE), "Eric Schneider"),
+    (re.compile(r"\bRyan\b", re.IGNORECASE), "Ryan Shuken"),
+]
+TOPIC_OVERRIDE = [
+    (re.compile(
+        r"\bbrand\b|\bmockup\b|\bcolor palette\b|\bCanva\b|"
+        r"print layout|page size|\bfont\b|educator UI|educator view",
+        re.IGNORECASE,
+    ), "Greta Phillips Kendall"),
+    (re.compile(
+        r"\bcontract\b|launch date|business priority|cost ceiling|"
+        r"data residency|CEO sign[- ]?off|final adjudication",
+        re.IGNORECASE,
+    ), "Sarah Scott Frank"),
 ]
 
 
@@ -66,9 +118,33 @@ def parse_registry(md_path: Path) -> list[dict]:
             section = m.group(1)
             section_title = m.group(2).strip()
             continue
-        if section and (m := QUESTION_ROW.match(line)):
+        if not section or section in SKIP_SECTIONS:
+            continue
+        # Section N has a different column layout
+        if section == "N":
+            if m := N_ROW.match(line):
+                qid, conflict, sources, resolution_q = m.groups()
+                if conflict.lower().startswith("conflict"):  # header row
+                    continue
+                xrefs = sorted(set(XREF.findall(conflict)) - {qid})
+                questions.append(
+                    {
+                        "id": qid,
+                        "section": section,
+                        "section_title": section_title,
+                        "text": conflict.strip(),
+                        "ask": resolution_q.strip(),
+                        "bucket": "Conflict",
+                        "source": sources.strip(),
+                        "owner": infer_owner(section, conflict, sources),
+                        "status": "open",
+                        "depends_on": xrefs,
+                    }
+                )
+            continue
+        # Standard A-M, P format
+        if m := QUESTION_ROW.match(line):
             qid, text, bucket, source = m.groups()
-            # Skip header row (Capability / Question)
             if text.lower().startswith("capability"):
                 continue
             ask = None
@@ -84,20 +160,34 @@ def parse_registry(md_path: Path) -> list[dict]:
                     "ask": ask,
                     "bucket": bucket.strip(),
                     "source": source.strip(),
-                    "owner": infer_owner(text, source),
-                    "status": "open",  # status tracking lives in Graphiti, not the MD
+                    "owner": infer_owner(section, text, source),
+                    "status": "open",
                     "depends_on": xrefs,
                 }
             )
     return questions
 
 
-def infer_owner(text: str, source: str) -> str:
-    combined = f"{text} {source}"
-    for pat, owner in OWNER_HEURISTICS:
-        if pat.search(combined):
+def infer_owner(section: str, text: str, source: str) -> str:
+    """Three-tier inference, strongest signal wins.
+
+    1. Direct name mention in question text → that person.
+    2. Unambiguous topic keyword (e.g., "print layout" → Greta, "contract" → Sarah).
+    3. Section default (e.g., Section N → Sarah for CEO adjudication).
+
+    Source codes (K:N, XL:..., S:N) describe the artifact a question references,
+    not who decides it. They are NOT used for inference.
+    """
+    # Tier 1: direct name in text only (source codes don't count)
+    for pat, owner in NAME_MENTION:
+        if pat.search(text):
             return owner
-    return "TBD"
+    # Tier 2: topic-specific override
+    for pat, owner in TOPIC_OVERRIDE:
+        if pat.search(text):
+            return owner
+    # Tier 3: section default
+    return SECTION_DEFAULT_OWNER.get(section, "TBD")
 
 
 # ----------------------------------------------------------------------------
