@@ -13,8 +13,9 @@ On the first turn of a session, Flyn reads these files in this order:
 3. **USER.md** — who I'm talking to (Ryan)
 4. **TOOLS.md** — what I can do on 4C
 5. **MEMORY.md** — recent state, **ONLY IF** main-session or direct Telegram DM from Ryan — NEVER in group chat or sub-agent context
-6. **HEARTBEAT.md** — scheduled pulses
-7. **BOOTSTRAP.md** — first-time setup ritual (only on the first session after deploy; rename after)
+6. **PROJECTS.md** — active client projects this agent is PM for (skip if empty / file absent)
+7. **HEARTBEAT.md** — scheduled pulses
+8. **BOOTSTRAP.md** — first-time setup ritual (only on the first session after deploy; rename after)
 
 ## Session-type routing
 
