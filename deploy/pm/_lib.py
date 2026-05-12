@@ -40,6 +40,14 @@ class Stakeholder:
     approval_gate: bool = False
     timeline_constraint: dict[str, Any] | None = None
     notes: str | None = None
+    chase_pattern: str | None = None
+    deliverables: list[str] | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Stakeholder":
+        """Permissive constructor: silently drops keys not in the dataclass."""
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 @dataclass(frozen=True)
@@ -61,7 +69,7 @@ class ProjectConfig:
 
     @property
     def stakeholders(self) -> list[Stakeholder]:
-        return [Stakeholder(**s) for s in self.raw.get("stakeholders", [])]
+        return [Stakeholder.from_dict(s) for s in self.raw.get("stakeholders", [])]
 
     @property
     def current_sprint(self) -> int:
