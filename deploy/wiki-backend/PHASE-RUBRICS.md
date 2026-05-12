@@ -51,24 +51,24 @@ Status legend: ✅ done · 🟡 in progress · ⬜ not started
 | 2.9 ✅ | Webhook payload includes signature for verification | hmac-sha256 over body with shared secret |
 | 2.10 ✅ | Telegram bridge: Flyn DM Beth on decision.created | webhook → Flyn handler → telegram_send to Beth's chat_id |
 
-## Phase 4 — Wiki PM UX ⬜
+## Phase 4 — Wiki PM UX 🟡 (10/12 — Gantt+deps+modal+decisions ✅; force-directed dep graph + URL-hash routing deferred)
 
 | # | Criterion | Test |
 |---|---|---|
-| 4.1 | Gantt-chart view exists in wiki | DOM has `#gantt-section` after load |
-| 4.2 | Gantt shows 3 sprint bands with date ranges | Visual via Playwright screenshot match |
-| 4.3 | Gantt shows per-stakeholder lanes with question dots | Each owner has a horizontal lane, dots clickable |
-| 4.4 | Dependency graph view exists | DOM has `#deps-section` after load |
+| 4.1 ✅ | Gantt-chart view exists in wiki | DOM has `#gantt-section` after load |
+| 4.2 ✅ | Gantt shows 3 sprint bands with date ranges | Visual via Playwright screenshot match |
+| 4.3 ✅ | Gantt shows per-stakeholder lanes with question dots | Each owner has a horizontal lane, dots clickable |
+| 4.4 ✅ | Dependency graph view exists | DOM has `#deps-section` after load |
 | 4.5 | Dependency graph renders nodes (questions) + edges (depends_on) | Force-directed via vanilla SVG; deps from questions.depends_on |
-| 4.6 | Click question → modal with full detail | Modal shows id, text, ask, source, owner, sprint, deps |
-| 4.7 | Modal has "Mark answered" button (auth-gated) | Button visible; click → API call → success/error toast |
-| 4.8 | Modal has "Reassign owner" button (auth-gated) | Button + owner dropdown; click → API call |
-| 4.9 | Modal has "Log decision" button | Decision form (decided_by, summary, body_md, question_ids) |
-| 4.10 | Decision history view | List all decisions with collapsible body_md |
+| 4.6 ✅ | Click question → modal with full detail | Modal shows id, text, ask, source, owner, sprint, deps |
+| 4.7 ✅ | Modal has "Mark answered" button (auth-gated) | Button visible; click → API call → success/error toast |
+| 4.8 ✅ | Modal has "Reassign owner" button (auth-gated) | Button + owner dropdown; click → API call |
+| 4.9 ✅ | Modal has "Log decision" button | Decision form (decided_by, summary, body_md, question_ids) |
+| 4.10 ✅ | Decision history view | List all decisions with collapsible body_md |
 | 4.11 | Per-stakeholder filter button leads to a "your work" view | URL hash routing; shows questions owned by clicked person |
-| 4.12 | Auth: PIN gate stays; mutation buttons require API key entry | Modal asks for API key on first mutation; stored in sessionStorage |
+| 4.12 ✅ | Auth: PIN gate stays; mutation buttons require API key entry | Modal asks for API key on first mutation; stored in sessionStorage |
 
-## Phase 5 — Outcomes driver ⬜
+## Phase 5 — Outcomes driver 🟡 (v0 scaffold shipped at deploy/outcomes/)
 
 | # | Criterion | Test |
 |---|---|---|
