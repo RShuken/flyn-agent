@@ -7,6 +7,9 @@
 - **Email:** ryanshuken@gmail.com
 - **Timezone:** America/Denver (MT) — confirm on first boot
 - **Telegram:** primary account; Flyn has its own dedicated bot
+  - Bot: `@flyn_4c_bot` (id 8842152875) — DM channel verified 2026-05-12
+  - Ryan's chat_id: `7191564227` (use for outbound DMs from Flyn)
+  - Previous bot `@fourC_3000_bot` is being retired
 
 ## Role and context
 
