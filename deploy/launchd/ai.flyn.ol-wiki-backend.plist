@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.flyn.ol-wiki-backend</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend/.venv/bin/uvicorn</string>
+        <string>app:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8200</string>
+        <string>--workers</string>
+        <string>1</string>
+        <string>--log-level</string>
+        <string>info</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ol-wiki-backend.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/ol-wiki-backend.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/4c</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend</string>
+        <key>OL_WIKI_API_KEY</key>
+        <string>__SET_BY_INSTALLER__</string>
+    </dict>
+</dict>
+</plist>
