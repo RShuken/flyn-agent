@@ -85,3 +85,23 @@ class Health(BaseModel):
     status: str = "ok"
     db: str
     questions_count: int
+
+
+# ----- Webhook -----
+
+class Webhook(BaseModel):
+    id: int
+    target_url: str
+    event_types: list[str] = Field(default_factory=list)
+    label: str | None = None
+    active: bool = True
+    created_at: datetime
+    last_fired_at: datetime | None = None
+    last_status: int | None = None
+
+
+class NewWebhook(BaseModel):
+    target_url: str = Field(min_length=8)
+    event_types: list[str] = Field(default_factory=lambda: ["*"])
+    secret: str | None = None
+    label: str | None = None

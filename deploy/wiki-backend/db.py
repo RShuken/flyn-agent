@@ -64,11 +64,25 @@ SCHEMA = [
         payload TEXT    NOT NULL DEFAULT '{}'
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS webhooks (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_url  TEXT    NOT NULL,
+        event_types TEXT    NOT NULL DEFAULT '[]',     -- JSON array
+        secret      TEXT,                              -- HMAC signing secret
+        label       TEXT,
+        active      INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        last_fired_at TEXT,
+        last_status INTEGER                            -- last HTTP status
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_questions_owner ON questions(owner)",
     "CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status)",
     "CREATE INDEX IF NOT EXISTS idx_questions_section ON questions(section)",
     "CREATE INDEX IF NOT EXISTS idx_questions_sprint ON questions(target_sprint)",
     "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_webhooks_active ON webhooks(active)",
 ]
 
 

@@ -36,10 +36,13 @@ from models import (
     Decision,
     Health,
     NewDecision,
+    NewWebhook,
     Question,
     ReassignQuestion,
     Stats,
+    Webhook,
 )
+from webhooks import fire_event
 
 
 API_KEY = os.environ.get("OL_WIKI_API_KEY", "")
@@ -226,7 +229,11 @@ def answer_question(
           payload={"question_id": question_id, "answer_text": payload.answer_text})
 
     new_row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
-    return _row_to_question(new_row)
+    result = _row_to_question(new_row)
+    fire_event(conn, event="question.answered", actor=payload.answered_by,
+               data={"question_id": question_id, "answer_text": payload.answer_text,
+                     "answered_by": payload.answered_by})
+    return result
 
 
 @app.post("/api/questions/{question_id}/reassign", response_model=Question, tags=["questions"])
@@ -249,7 +256,11 @@ def reassign_question(
           payload={"question_id": question_id, "from": old_owner, "to": payload.owner,
                    "reason": payload.reason})
     new_row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
-    return _row_to_question(new_row)
+    result = _row_to_question(new_row)
+    fire_event(conn, event="question.reassigned", actor="api",
+               data={"question_id": question_id, "from": old_owner, "to": payload.owner,
+                     "reason": payload.reason})
+    return result
 
 
 @app.post("/api/decisions", response_model=Decision, status_code=status.HTTP_201_CREATED, tags=["decisions"])
@@ -271,7 +282,71 @@ def create_decision(
           payload={"decision_id": new_id, "summary": payload.summary,
                    "question_ids": payload.question_ids})
     row = conn.execute("SELECT * FROM decisions WHERE id = ?", (new_id,)).fetchone()
-    return _row_to_decision(row)
+    result = _row_to_decision(row)
+    fire_event(conn, event="decision.created", actor=payload.decided_by,
+               data={"decision_id": new_id, "summary": payload.summary,
+                     "question_ids": payload.question_ids,
+                     "source_meeting": payload.source_meeting})
+    return result
+
+
+# -------------------- webhook subscriptions --------------------
+
+@app.get("/api/webhooks", response_model=list[Webhook], tags=["webhooks"])
+def list_webhooks(
+    _key: str = Depends(require_api_key),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[Webhook]:
+    rows = conn.execute(
+        "SELECT id, target_url, event_types, label, active, created_at, last_fired_at, last_status FROM webhooks ORDER BY id"
+    ).fetchall()
+    out: list[Webhook] = []
+    for r in rows:
+        d = dict(r)
+        d["event_types"] = json.loads(d.get("event_types") or "[]")
+        d["active"] = bool(d.get("active"))
+        out.append(Webhook(**d))
+    return out
+
+
+@app.post("/api/webhooks", response_model=Webhook, status_code=status.HTTP_201_CREATED, tags=["webhooks"])
+def create_webhook(
+    payload: NewWebhook,
+    _key: str = Depends(require_api_key),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> Webhook:
+    cur = conn.execute(
+        """
+        INSERT INTO webhooks (target_url, event_types, secret, label)
+        VALUES (?, ?, ?, ?)
+        """,
+        (payload.target_url, json.dumps(payload.event_types), payload.secret, payload.label),
+    )
+    new_id = cur.lastrowid
+    audit(conn, actor="api", action="webhook.created",
+          payload={"webhook_id": new_id, "target_url": payload.target_url,
+                   "event_types": payload.event_types, "label": payload.label})
+    row = conn.execute(
+        "SELECT id, target_url, event_types, label, active, created_at, last_fired_at, last_status FROM webhooks WHERE id = ?",
+        (new_id,),
+    ).fetchone()
+    d = dict(row)
+    d["event_types"] = json.loads(d.get("event_types") or "[]")
+    d["active"] = bool(d.get("active"))
+    return Webhook(**d)
+
+
+@app.delete("/api/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["webhooks"])
+def delete_webhook(
+    webhook_id: int,
+    _key: str = Depends(require_api_key),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> None:
+    row = conn.execute("SELECT id FROM webhooks WHERE id = ?", (webhook_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Webhook {webhook_id} not found")
+    conn.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+    audit(conn, actor="api", action="webhook.deleted", payload={"webhook_id": webhook_id})
 
 
 @app.get("/api/audit", response_model=list[AuditEntry], tags=["meta"])

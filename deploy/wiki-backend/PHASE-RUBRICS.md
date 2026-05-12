@@ -36,20 +36,20 @@ Status legend: ✅ done · 🟡 in progress · ⬜ not started
 | 1.8 | Backend survives reboot | launchd `ai.flyn.ol-wiki-backend` has `KeepAlive=true` ✅ |
 | 1.9 | First real decision logged | `curl -sS .../decisions \| jq -e '. \| length > 0'` ✅ |
 
-## Phase 2 — Webhooks (Flyn-on-mutation) ⬜
+## Phase 2 — Webhooks (Flyn-on-mutation) ✅
 
 | # | Criterion | Test |
 |---|---|---|
-| 2.1 | Subscriptions table exists | `sqlite3 ~/.openclaw/data/ol-pm.db ".schema webhooks"` |
-| 2.2 | POST /api/webhooks creates subscription | TestClient: 201 + DB row |
-| 2.3 | GET /api/webhooks lists subscriptions (auth) | TestClient: 200 + list |
-| 2.4 | DELETE /api/webhooks/{id} works (auth) | TestClient: 204 + DB row removed |
-| 2.5 | question.answered fires webhook | TestClient mock receiver: receives POST |
-| 2.6 | decision.created fires webhook | TestClient mock receiver: receives POST |
-| 2.7 | question.reassigned fires webhook | TestClient mock receiver: receives POST |
-| 2.8 | Webhook delivery is best-effort (failures don't break mutation) | TestClient: mutation succeeds even if receiver 500s |
-| 2.9 | Webhook payload includes signature for verification | hmac-sha256 over body with shared secret |
-| 2.10 | Telegram bridge: Flyn DM Beth on decision.created | webhook → Flyn handler → telegram_send to Beth's chat_id |
+| 2.1 ✅ | Subscriptions table exists | `sqlite3 ~/.openclaw/data/ol-pm.db ".schema webhooks"` |
+| 2.2 ✅ | POST /api/webhooks creates subscription | TestClient: 201 + DB row |
+| 2.3 ✅ | GET /api/webhooks lists subscriptions (auth) | TestClient: 200 + list |
+| 2.4 ✅ | DELETE /api/webhooks/{id} works (auth) | TestClient: 204 + DB row removed |
+| 2.5 ✅ | question.answered fires webhook | TestClient mock receiver: receives POST |
+| 2.6 ✅ | decision.created fires webhook | TestClient mock receiver: receives POST |
+| 2.7 ✅ | question.reassigned fires webhook | TestClient mock receiver: receives POST |
+| 2.8 ✅ | Webhook delivery is best-effort (failures don't break mutation) | TestClient: mutation succeeds even if receiver 500s |
+| 2.9 ✅ | Webhook payload includes signature for verification | hmac-sha256 over body with shared secret |
+| 2.10 ✅ | Telegram bridge: Flyn DM Beth on decision.created | webhook → Flyn handler → telegram_send to Beth's chat_id |
 
 ## Phase 4 — Wiki PM UX ⬜
 
