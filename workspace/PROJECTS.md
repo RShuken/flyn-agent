@@ -15,8 +15,14 @@ When this file is present and non-empty, Flyn behaves as a **project manager** i
 
 ### Mission control per project
 
-- **OpenLiteracy:** the wiki at `http://127.0.0.1:8200/api` (publicly at `ol-explainer-wiki.pages.dev`) IS the OL project HQ. Tickets, decisions, audit. Full reference in `WIKI.md`. When Ryan or Beth says "the wiki" / "update the site" / "modify [a question]" — that's this, not Notion or Google Docs.
-- **Cora:** placeholder config at `~/.openclaw/projects/cora/config.yaml`; no PM mission-control system wired yet. When Beth asks about Cora PM, surface this gap.
+- **OpenLiteracy:** the wiki at `http://127.0.0.1:8200/api` (publicly at `ol-explainer-wiki.pages.dev`) IS the OL project HQ. Tickets, decisions, audit. Full reference in `WIKI.md`. When Ryan or Beth says "the wiki" / "update the site" / "modify [a question]" — that's this, not Notion or Google Docs. **Linear mirror:** issues at https://linear.app/rshuken/project/openliteracy-phase-2-320bbd515474 — same data, two-way sync from the wiki (every question becomes a Linear issue, status changes round-trip).
+
+> **Scope as of 2026-05-13:** Flyn's PM focus is **OpenLiteracy only** while we
+> finish wiring Flyn's core capabilities. Cora is on the roadmap but not
+> actively tracked yet — the placeholder config at `~/.openclaw/projects/cora/`
+> exists for forward-compatibility only. When Beth or Ryan mention Cora in
+> conversation, acknowledge it, but **don't try to fetch Cora PM state** —
+> tell them Cora PM is not yet on Flyn's plate.
 
 To add a project: drop a config at `~/.openclaw/projects/<slug>/config.yaml` (template: `skills/deploy-project-pm.md` Step 2), then add a row above. Flyn picks it up at next boot.
 

@@ -32,8 +32,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Anthropic SDK
-import anthropic
+# Anthropic SDK is optional now; we fall back to `claude -p` CLI if it's missing
+try:
+    import anthropic  # noqa: F401  (kept available; call_claude uses it when API key exists)
+except ImportError:
+    pass
 
 
 LOG_DIR = Path.home() / ".openclaw" / "logs" / "outcomes"
@@ -112,16 +115,68 @@ Return JSON: {"criteria": {"id": {"verdict": "pass|fail|skip", "feedback": "..."
 """
 
 
-def call_claude(client: anthropic.Anthropic, system: str, user: str,
+def call_claude(client, system: str, user: str,
                 model: str = "claude-opus-4-7", max_tokens: int = 4000) -> str:
-    """Single round-trip Messages API call."""
-    msg = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    """Single round-trip Claude call. Tries three backends in order:
+      1. Anthropic API SDK (requires API key, not OAuth)
+      2. Claude Code CLI in print mode (`claude -p`) — uses whatever subscription
+         is logged in on this machine, no API key needed
+      3. Error out cleanly
+
+    The `client` arg is ignored when falling back to CLI; we keep it for
+    backward compat with the original signature.
+    """
+    import os
+    import subprocess
+
+    # Backend 1: Anthropic SDK if API key is available
+    if client is not None and getattr(client, "api_key", "").startswith("sk-ant-api"):
+        msg = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return "".join(b.text for b in msg.content if b.type == "text")
+
+    # Backend 2: claude -p CLI
+    if subprocess.run(["which", "claude"], capture_output=True).returncode == 0:
+        # Combine system + user since CLI handles them in --system-prompt
+        try:
+            result = subprocess.run(
+                [
+                    "claude", "-p",
+                    "--output-format", "text",
+                    "--system-prompt", system,
+                    "--permission-mode", "default",
+                ],
+                input=user,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            return "[claude -p timed out at 180s]"
+        if result.returncode != 0:
+            return f"[claude -p exited {result.returncode}: {result.stderr[:500]}]"
+        return result.stdout.strip()
+
+    raise RuntimeError(
+        "No Claude backend available: need either ANTHROPIC_API_KEY (with API key, not OAuth) "
+        "OR `claude` CLI in PATH with a logged-in session."
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+
+
+def _get_anthropic_client():
+    """Try to construct an Anthropic SDK client. Returns None if unavailable."""
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    api_key = load_api_key()
+    if not api_key or not api_key.startswith("sk-ant-api"):
+        return None
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def run_outcomes(rubric_path: Path, phase: int, max_iter: int = 5,
@@ -134,7 +189,7 @@ def run_outcomes(rubric_path: Path, phase: int, max_iter: int = 5,
     if not unmet:
         return {"phase": phase, "status": "already-done", "iterations": 0}
 
-    client = anthropic.Anthropic(api_key=load_api_key())
+    client = _get_anthropic_client()    # may be None — call_claude falls back to `claude -p`
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     history = []
     feedback = ""
