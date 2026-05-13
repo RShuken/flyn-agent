@@ -13,9 +13,35 @@ This is **the project management HQ** for the OpenLiteracy Phase 2 engagement. I
 | **Public wiki (browser)** | https://ol-explainer-wiki.pages.dev (PIN: `1080`) | Read-only HTML for humans. Renders questions, Gantt, decisions, principles. Powered by the API below. |
 | **API** (read + write) | https://4cs-mac-mini.tailc7d8af.ts.net/api | Authoritative state. Use this from `exec` curl calls. |
 | **API (local, faster)** | http://127.0.0.1:8200/api | Same API, same data, 127.0.0.1-bound. **Always prefer this** from Flyn-on-4C. |
+| **Linear mirror** | https://linear.app/rshuken/project/openliteracy-phase-2-320bbd515474 | Each wiki question = a Linear issue (auto-synced). Use Linear when Beth or Eric want a board view, batch comments, or to assign to specific Linear users. |
 | **SQLite** | `~/.openclaw/data/ol-pm.db` | Underlying store. Read with `sqlite3` if API is down. NEVER write directly — go through the API so audit + webhooks fire. |
 | **Source repo** | `/Users/4c/AI/openlit/OL_LearningPathways_Knowledgebase` (private) | Markdown source of truth for question text, sprint plan, synthesis, RESOLVED.md. Auto-deploys the wiki on push. |
 | **launchd service** | `ai.flyn.ol-wiki-backend` | The FastAPI server on :8200. KeepAlive=true. |
+
+## Linear mirror (auto-synced)
+
+Every question in the wiki has a corresponding Linear issue in the `RSH`
+team under project **OpenLiteracy Phase 2**. Labels: `openliteracy`,
+`section-{A..P}`, `bucket-{ai-does|ai-generates|...}`, `owner-{firstname}`,
+`sprint-{1|2|3}`.
+
+Wiki status → Linear state:
+- `open` / `deferred` → Backlog
+- `pending-answer` → Todo
+- `answered` → Done
+
+To re-sync after a wiki change:
+```bash
+cd /Users/4c/AI/flyn-agent/deploy/wiki-backend
+.venv/bin/python linear_sync.py --question A.5      # one question
+.venv/bin/python linear_sync.py                     # all (~5 min)
+```
+
+Linear API key at `~/.openclaw/agents/main/agent/auth-profiles.json`
+(`linear:default`). GraphQL endpoint: `https://api.linear.app/graphql`,
+header `Authorization: <key>` (no Bearer prefix). Note: Linear's API
+uses ID-typed variables for filter args but String-typed for input
+fields — pattern is in `linear_sync.py`.
 
 ---
 
