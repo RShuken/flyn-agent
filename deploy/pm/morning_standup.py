@@ -146,15 +146,27 @@ def sprint_blockers(cfg: ProjectConfig) -> list[dict]:
 
 
 def overnight_summary(cfg: ProjectConfig) -> list[str]:
-    """Look for episodes ingested in the last 18h tagged with this project."""
-    facts = graphiti_search(f"{cfg.slug} ingested")
+    """Look for episodes ingested in the last 18h tagged with this project.
+
+    Best-effort: if Graphiti is unreachable or returns no results, return [].
+    Never raise — the standup should still post even when KG is down.
+    """
+    try:
+        facts = graphiti_search(f"{cfg.slug} ingested")
+    except Exception:
+        return []
+    if not facts:
+        return []
     cutoff = (datetime.utcnow() - timedelta(hours=18)).isoformat()
     fresh = [f for f in facts if f.get("created_at", "") > cutoff]
     return [f"{f.get('name', '?')}" for f in fresh[:5]]
 
 
 def drafts_awaiting_approval(cfg: ProjectConfig) -> int:
-    facts = graphiti_search(f"{cfg.slug} draft awaiting-approval")
+    try:
+        facts = graphiti_search(f"{cfg.slug} draft awaiting-approval")
+    except Exception:
+        return 0
     return len(facts)
 
 
@@ -188,12 +200,23 @@ def deliver(cfg: ProjectConfig, digest: str, dry_run: bool) -> None:
     cadence = cfg.raw["cadence"]["morning_standup"]
     if not cadence.get("enabled", True):
         return
-    # Resolve recipients to chat_ids
-    by_name = {s.name.lower(): s for s in cfg.stakeholders}
+
+    # Recipient lookup: config uses nicknames ("ryan", "beth"); stakeholder
+    # name is full ("Ryan Shuken"). Match by lowercased first name OR by
+    # full lowercased name.
+    by_alias = {}
+    for s in cfg.stakeholders:
+        by_alias[s.name.lower()] = s
+        by_alias[s.name.split()[0].lower()] = s
+
     for recipient_key in cadence.get("recipients", []):
-        s = by_name.get(recipient_key.lower())
+        s = by_alias.get(recipient_key.lower())
         if s and s.chat_id and s.chat_id != "TBD":
-            telegram_send(s.chat_id, digest)
+            try:
+                telegram_send(s.chat_id, digest)
+            except Exception as exc:
+                # Don't let one failed recipient block delivery to others
+                print(f"deliver: failed to {s.name} ({s.chat_id}): {exc}", flush=True)
 
 
 def main() -> int:

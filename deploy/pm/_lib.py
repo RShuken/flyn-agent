@@ -132,11 +132,21 @@ def graphiti_episode(body: str, name: str | None = None, timeout: int = 1800) ->
 
 
 def graphiti_search(query: str) -> list[dict]:
-    """Semantic search. Returns list of fact edges with valid_at/invalid_at."""
-    qs = urllib.parse.urlencode({"q": query})
-    with urllib.request.urlopen(f"{GRAPHITI_BASE}/api/search?{qs}", timeout=10) as r:
-        data = json.loads(r.read())
-    return data.get("facts", [])
+    """Semantic search. Returns list of fact edges with valid_at/invalid_at.
+
+    Best-effort: returns [] on any error (HTTP failure, service down,
+    network issue). Callers that need to know about failures should use
+    graphiti_health() first.
+    """
+    try:
+        qs = urllib.parse.urlencode({"q": query})
+        with urllib.request.urlopen(f"{GRAPHITI_BASE}/api/search?{qs}", timeout=10) as r:
+            data = json.loads(r.read())
+        return data.get("facts", []) or data.get("results", []) or []
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return []
+    except json.JSONDecodeError:
+        return []
 
 
 # ----------------------------------------------------------------------------
@@ -144,21 +154,57 @@ def graphiti_search(query: str) -> list[dict]:
 # ----------------------------------------------------------------------------
 
 
-def telegram_send(chat_id: str, text: str, topic_id: str | None = None) -> None:
-    """Send a Telegram message via `openclaw channels send`.
+def _load_telegram_bot_token() -> str:
+    """Pull the Flyn Telegram bot token from openclaw.json.
 
-    Falls back to stdout print if openclaw is not on PATH (dev-mode dry runs).
+    OpenClaw 2026.4.15 doesn't expose a `channels send` subcommand (verified
+    via `openclaw channels --help`), so we use the Telegram Bot HTTP API
+    directly with the same bot token openclaw uses for inbound routing.
     """
-    cmd = ["openclaw", "channels", "send", "--platform", "telegram", "--chat", chat_id]
-    if topic_id:
-        cmd += ["--topic", topic_id]
-    cmd += ["--text", text]
+    if v := os.environ.get("TELEGRAM_BOT_TOKEN"):
+        return v
+    cfg_path = Path.home() / ".openclaw" / "openclaw.json"
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except FileNotFoundError:
-        print(f"[telegram_send DRYRUN to {chat_id}]\n{text}\n", flush=True)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"openclaw channels send failed: {e.stderr}") from e
+        cfg = json.loads(cfg_path.read_text())
+        return cfg["channels"]["telegram"]["botToken"]
+    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        return ""
+
+
+def telegram_send(chat_id: str, text: str, topic_id: str | None = None) -> None:
+    """Send a Telegram message via the Bot HTTP API.
+
+    `chat_id` is the integer chat ID as a string (e.g. '7191564227'). If
+    `topic_id` is provided (for forum/group topics), it's passed as
+    `message_thread_id`. Failures raise RuntimeError so callers can decide
+    to log+continue or bubble up.
+    """
+    token = _load_telegram_bot_token()
+    if not token:
+        # Dev-mode: print so tests/dry-runs don't crash
+        print(f"[telegram_send NO-TOKEN to {chat_id}]\n{text}\n", flush=True)
+        return
+
+    payload: dict[str, Any] = {"chat_id": int(chat_id), "text": text}
+    if topic_id:
+        payload["message_thread_id"] = int(topic_id)
+
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = json.loads(r.read())
+        if not resp.get("ok"):
+            raise RuntimeError(f"telegram sendMessage failed: {resp.get('description')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"telegram sendMessage HTTP {e.code}: {body}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"telegram sendMessage network error: {e}") from e
 
 
 # ----------------------------------------------------------------------------
