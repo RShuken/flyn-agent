@@ -26,8 +26,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from db import audit, get_conn, init_db
 from models import (
@@ -51,11 +54,18 @@ PROJECT_SLUG = os.environ.get("OL_WIKI_PROJECT", "openliteracy")
 
 # -------------------- lifecycle --------------------
 
+# Rate limiter: 60 req/min per IP for reads, 20/min for writes (auth-gated
+# so abuse risk is lower but still bounded). Applied per-endpoint below via
+# the @limiter.limit decorator.
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
 app = FastAPI(
     title="OL Project-Management Wiki API",
     version="0.1.0",
     description="Backend for the OpenLiteracy Phase 2 master-plan wiki.",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS: the wiki on Cloudflare Pages must be allowed to fetch.
 app.add_middleware(
@@ -113,13 +123,16 @@ def _row_to_audit(row: sqlite3.Row) -> AuditEntry:
 # -------------------- read endpoints (open) --------------------
 
 @app.get("/api/health", response_model=Health, tags=["meta"])
-def health(conn: sqlite3.Connection = Depends(get_conn)) -> Health:
+@limiter.limit("120/minute")   # health is cheap; allow higher
+def health(request: Request, conn: sqlite3.Connection = Depends(get_conn)) -> Health:
     n = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
     return Health(status="ok", db="sqlite", questions_count=n)
 
 
 @app.get("/api/questions", response_model=list[Question], tags=["questions"])
+@limiter.limit("60/minute")
 def list_questions(
+    request: Request,
     conn: sqlite3.Connection = Depends(get_conn),
     owner: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
@@ -151,7 +164,8 @@ def list_questions(
 
 
 @app.get("/api/questions/{question_id}", response_model=Question, tags=["questions"])
-def get_question(question_id: str, conn: sqlite3.Connection = Depends(get_conn)) -> Question:
+@limiter.limit("120/minute")
+def get_question(request: Request, question_id: str, conn: sqlite3.Connection = Depends(get_conn)) -> Question:
     row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail=f"Question {question_id} not found")
@@ -159,7 +173,9 @@ def get_question(question_id: str, conn: sqlite3.Connection = Depends(get_conn))
 
 
 @app.get("/api/decisions", response_model=list[Decision], tags=["decisions"])
+@limiter.limit("60/minute")
 def list_decisions(
+    request: Request,
     conn: sqlite3.Connection = Depends(get_conn),
     limit: int = Query(200, le=1000),
 ) -> list[Decision]:
@@ -170,7 +186,8 @@ def list_decisions(
 
 
 @app.get("/api/stats", response_model=Stats, tags=["meta"])
-def stats(conn: sqlite3.Connection = Depends(get_conn)) -> Stats:
+@limiter.limit("60/minute")
+def stats(request: Request, conn: sqlite3.Connection = Depends(get_conn)) -> Stats:
     total = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
 
     def grouped(col: str) -> dict[str, int]:
