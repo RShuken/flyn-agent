@@ -10,7 +10,13 @@ When this file is present and non-empty, Flyn behaves as a **project manager** i
 
 | Slug | Client | Sprint | Sprint ends | Status | Source of truth |
 |------|--------|--------|-------------|--------|-----------------|
-| `openliteracy` | OpenLiteracy | 1 of 3 | 2026-05-22 | active | `/Users/4c/AI/openlit/OL_LearningPathways_Knowledgebase` |
+| `openliteracy` | OpenLiteracy | 1 of 3 | 2026-05-22 | active | repo: `/Users/4c/AI/openlit/OL_LearningPathways_Knowledgebase` · wiki API: `http://127.0.0.1:8200/api` (see `WIKI.md`) |
+
+
+### Mission control per project
+
+- **OpenLiteracy:** the wiki at `http://127.0.0.1:8200/api` (publicly at `ol-explainer-wiki.pages.dev`) IS the OL project HQ. Tickets, decisions, audit. Full reference in `WIKI.md`. When Ryan or Beth says "the wiki" / "update the site" / "modify [a question]" — that's this, not Notion or Google Docs.
+- **Cora:** placeholder config at `~/.openclaw/projects/cora/config.yaml`; no PM mission-control system wired yet. When Beth asks about Cora PM, surface this gap.
 
 To add a project: drop a config at `~/.openclaw/projects/<slug>/config.yaml` (template: `skills/deploy-project-pm.md` Step 2), then add a row above. Flyn picks it up at next boot.
 

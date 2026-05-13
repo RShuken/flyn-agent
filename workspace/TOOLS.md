@@ -134,3 +134,19 @@ Never use frontier cloud to "remember" something already in one of these four la
 - **Don't bypass approval gates** even when "probably wanted" — ask.
 - **Don't spin up long-running background processes unless instructed or from cron.**
 - **Don't send Ryan info he's already seeing in-session.**
+
+## OpenLiteracy project-management wiki
+
+The OL wiki is mission control for the OpenLiteracy Phase 2 engagement —
+tickets (called "questions"), decisions, owners, sprint state, audit log.
+Full reference + every endpoint + curl patterns: `workspace/WIKI.md`.
+
+TL;DR:
+- Read state: `curl -sS http://127.0.0.1:8200/api/questions?status=open`
+- Write state (requires `X-API-Key` from auth-profiles.json):
+  `curl -sS -X POST http://127.0.0.1:8200/api/questions/<id>/answer ...`
+
+When Ryan or Beth references "the wiki" / "the site" / "modify question X"
+without naming a system — this is what they mean. **Not Notion. Not Google
+Docs. This.** Always check `workspace/WIKI.md` before reaching for Notion or
+asking which platform.

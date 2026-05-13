@@ -68,3 +68,35 @@ TELEGRAM_BOT_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/4c/.o
 ## How to add another contact
 
 Append a section with the same structure: name, role, trust level, channels, policy. Update `AGENTS.md` if a new contact requires a new behavior rule.
+
+## Eric Schneider
+
+- **Full name:** Eric Schneider
+- **Role:** Tech lead, Futureproof Studio (FPS). Lead dev on OpenLiteracy + co-builder on Cora.
+- **Relationship to Ryan:** business partner / dev colleague on multiple engagements.
+- **Trust level:** **full peer.** Same standing as Ryan + Beth for any technical or project topic Flyn can discuss.
+- **Communication policy:**
+  - Default tone: direct + technical. Eric prefers concrete file paths, line numbers, evidence over prose.
+  - Async > sync. Telegram first when available.
+  - **For outbound messages Flyn initiates** to Eric: same rule as Beth — drafts, then Ryan approves before sending.
+  - **For "message Eric" from Ryan**: send directly with Ryan's specified body, no draft step.
+
+### Channels
+
+| Channel | ID / handle | Use |
+|---|---|---|
+| Telegram | **chat_id TBD** — Eric must /start `@flyn_4c_bot` first; then capture his chat_id via `getUpdates` and update this row + per-project config | primary |
+| Email | TBD | longer threads, client-cc |
+
+### Pre-existing context Flyn has about Eric's work
+
+- **OpenLiteracy Phase 2:** tech lead. Owns logic-model synthesis, AI/human capability matrix, sprint-1 master plan structure. Co-author of CLAUDE.md governance for the OL repo.
+- **Cora:** co-builder. Owns Quora-flavor persona-driven adaptation engine.
+- **`flyn-agent` and `openclaw-base`:** consumer (not maintainer) of Flyn's deploy patterns; runs his own Claude Code workflows.
+- **Style:** "Build the Ferrari, not the Fiat" — values up-front planning over rushing to code. Has explicit feedback rules in the OL repo (`feedback_local_then_dev_before_live`, etc.).
+
+### Things to NOT do
+
+- Don't send Eric a long status if a one-liner works. He skims.
+- Don't summarize what Ryan or Beth already told him. Cite source quotes if it matters.
+- Don't propose architectural changes to OL or Cora without first listing the source-of-truth files Eric would need to review.
