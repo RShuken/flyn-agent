@@ -11,9 +11,13 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ..cost import CostTracker
 
 from .base import WorkerResult, WorkerBackend
+from ..cost import BudgetExceeded
 from ..types import WorkerSpec
 
 
@@ -60,7 +64,7 @@ class ClaudePBackend:
             cmd.extend(["--allowedTools", ",".join(spec.allowed_tools)])
         return cmd
 
-    def run(self, spec: WorkerSpec, prompt: str) -> WorkerResult:
+    def run(self, spec: WorkerSpec, prompt: str, *, cost_tracker: Optional["CostTracker"] = None) -> WorkerResult:
         capture_path = Path(spec.worktree_path) / f"{spec.worker_id}.jsonl"
         capture_path.parent.mkdir(parents=True, exist_ok=True)
         start = time.time()
@@ -97,7 +101,28 @@ class ClaudePBackend:
                     if "usage" in ev:
                         usage = ev["usage"]
                         if isinstance(usage, dict) and "cost_usd" in usage:
-                            cost += float(usage["cost_usd"])
+                            cost_delta = float(usage["cost_usd"])
+                            cost += cost_delta
+                            if cost_tracker is not None and cost_delta:
+                                try:
+                                    cost_tracker.add(cost_delta)
+                                except BudgetExceeded:
+                                    proc.terminate()
+                                    try:
+                                        proc.wait(timeout=5)
+                                    except subprocess.TimeoutExpired:
+                                        proc.kill()
+                                        proc.wait(timeout=2)
+                                    capture.flush()
+                                    duration_ms = int((time.time() - start) * 1000)
+                                    return WorkerResult(
+                                        worker_id=spec.worker_id, exit_code=-1,
+                                        capture_path=capture_path,
+                                        cost_usd=cost_tracker.total_usd,
+                                        duration_ms=duration_ms,
+                                        changed_files=[],
+                                        summary="budget exceeded mid-run",
+                                    )
                     if "result" in ev and isinstance(ev["result"], dict):
                         summary = str(ev["result"].get("summary", ""))[:500]
                         cf = ev["result"].get("changed_files")

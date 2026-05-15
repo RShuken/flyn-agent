@@ -3,6 +3,7 @@ from typing import Optional
 
 from .backends import BackendRegistry, WorkerBackend, default_registry
 from .backends.base import WorkerResult
+from .cost import CostTracker
 from .types import WorkerSpec
 
 
@@ -24,7 +25,8 @@ class WorkerDispatcher:
 
     def dispatch(self, spec: WorkerSpec, prompt: str) -> WorkerResult:
         backend = self._registry.get(spec.backend)
-        result = backend.run(spec, prompt)
+        tracker = CostTracker(budget_usd=spec.budget_usd)
+        result = backend.run(spec, prompt, cost_tracker=tracker)
         try:
             size = result.capture_path.stat().st_size
         except OSError:

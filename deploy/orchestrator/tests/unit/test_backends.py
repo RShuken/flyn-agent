@@ -125,3 +125,81 @@ def test_codex_exec_env_loads_from_auth_profiles(monkeypatch):
     b = CodexExecBackend()
     env = b._build_env()
     assert env.get("OPENAI_API_KEY") == "sk-proj-from-profile"
+
+
+def test_claude_p_aborts_on_budget_exceeded(tmp_path, monkeypatch):
+    """Backend must terminate the worker when accumulated cost exceeds budget."""
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    from flyn_orchestrator.cost import CostTracker
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="claude-p", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=0.10,
+    )
+    fake_stdout_lines = [
+        '{"type":"message","content":"hello"}\n',
+        '{"type":"usage","usage":{"cost_usd":0.05}}\n',
+        '{"type":"usage","usage":{"cost_usd":0.10}}\n',  # cumulative 0.15 > 0.10 budget
+        '{"type":"message","content":"should not appear"}\n',
+    ]
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = iter(fake_stdout_lines)
+            self._terminated = False
+
+        def terminate(self):
+            self._terminated = True
+
+        def wait(self, timeout=None):
+            return -1
+
+        def kill(self):
+            pass
+
+    fake_proc = FakeProc()
+    monkeypatch.setattr("flyn_orchestrator.backends.claude_p.subprocess.Popen", lambda *a, **kw: fake_proc)
+    backend = ClaudePBackend()
+    tracker = CostTracker(budget_usd=0.10)
+    result = backend.run(spec, "hi", cost_tracker=tracker)
+    assert result.exit_code == -1
+    assert "budget exceeded" in result.summary.lower()
+    assert fake_proc._terminated, "worker subprocess was not terminated"
+
+
+def test_claude_p_under_budget_completes_normally(tmp_path, monkeypatch):
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    from flyn_orchestrator.cost import CostTracker
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="claude-p", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=1.00,
+    )
+    fake_stdout_lines = [
+        '{"type":"message","content":"hello"}\n',
+        '{"type":"usage","usage":{"cost_usd":0.10}}\n',
+        '{"type":"result","result":{"summary":"done","changed_files":["x.py"]}}\n',
+    ]
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = iter(fake_stdout_lines)
+            self._terminated = False
+
+        def terminate(self):
+            self._terminated = True
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    fake_proc = FakeProc()
+    monkeypatch.setattr("flyn_orchestrator.backends.claude_p.subprocess.Popen", lambda *a, **kw: fake_proc)
+    backend = ClaudePBackend()
+    tracker = CostTracker(budget_usd=1.00)
+    result = backend.run(spec, "hi", cost_tracker=tracker)
+    assert result.exit_code == 0
+    assert not fake_proc._terminated
+    assert result.cost_usd > 0

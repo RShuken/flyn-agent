@@ -54,7 +54,7 @@ def test_router_notifies_originating_channel_at_deliverable_ready(tmp_path: Path
     channels.register(stub_channel)
 
     # Stub backend that writes a real diff
-    def _run(spec, prompt):
+    def _run(spec, prompt, *, cost_tracker=None):
         wt = Path(spec.worktree_path)
         (wt / "hello.py").write_text('print("hi")\n')
         subprocess.run(["git", "-C", str(wt), "add", "."], check=True)
@@ -118,7 +118,7 @@ def test_router_skips_notify_when_no_channel_in_payload(tmp_path: Path, repo: Pa
     channels = ChannelRegistry()
     channels.register(stub_channel)
 
-    def _run(spec, prompt):
+    def _run(spec, prompt, *, cost_tracker=None):
         wt = Path(spec.worktree_path)
         (wt / "x.py").write_text("# x\n")
         subprocess.run(["git", "-C", str(wt), "add", "."], check=True)

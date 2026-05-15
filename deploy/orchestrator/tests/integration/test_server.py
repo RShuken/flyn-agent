@@ -34,7 +34,7 @@ def client(tmp_path: Path, repo: Path, monkeypatch):
 
     # Stub backend
     dispatcher = WorkerDispatcher()
-    def _run(spec, prompt):
+    def _run(spec, prompt, *, cost_tracker=None):
         wt = Path(spec.worktree_path)
         (wt / "hello.py").write_text('print("hi")\n')
         subprocess.run(["git", "-C", str(wt), "add", "."], check=True)
