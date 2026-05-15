@@ -1,0 +1,42 @@
+# Phase 4 content workflow policy.
+# Draft-only delivery — content NEVER auto-publishes. Send requires explicit approval.
+name: content
+intent_patterns:
+  - "draft"
+  - "write"
+  - "compose"
+  - "post"
+  - "respond to"
+  - "reply to"
+  - "tweet"
+  - "newsletter"
+roles:
+  - name: pm
+    model: claude
+    prompt: pm_content
+  - name: writer
+    model: claude
+    prompt: writer
+  - name: editor
+    model: claude
+    prompt: editor
+    readonly: true   # fresh-context, can't rewrite — outputs polish-suggestion list
+  - name: fact_checker
+    model: claude
+    prompt: fact_checker
+    readonly: true
+  - name: humanizer
+    model: claude
+    prompt: humanizer_invoker
+flow:
+  - intake
+  - spec          # PM refines requirements + decides which optional steps run
+  - draft         # Writer drafts
+  - edit          # Editor polishes (fresh-context)
+  - fact_check    # CONDITIONAL: only if PM flagged factual claims
+  - humanize      # CONDITIONAL: only if PM flagged the request as "make it human"
+  - human_approval
+  - deliver_draft
+approval_gates:
+  send_externally: teammate    # only when user explicitly asks to send/publish
+budget_default_usd: 1.0
