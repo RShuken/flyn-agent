@@ -15,8 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from .adapters import ChannelRegistry
 from .cost import BudgetExceeded, CostTracker
-from .dispatcher import WorkerDispatcher
+from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
 from .reviewer import review as _default_review
 from .state import StateStore
@@ -43,6 +44,7 @@ class TaskRouter:
         repo_path_for_workflow: Callable[[str], Path],
         builder_prompt_path: Path,
         reviewer_invoker: Optional[Callable[..., ReviewFindings]] = None,
+        channel_registry: Optional[ChannelRegistry] = None,
     ) -> None:
         self._store = store
         self._dispatcher = dispatcher
@@ -51,6 +53,7 @@ class TaskRouter:
         self._repo_path_for_workflow = repo_path_for_workflow
         self._builder_prompt_path = builder_prompt_path
         self._reviewer_invoker = reviewer_invoker or _default_review
+        self._channels = channel_registry
 
     # ------------------------------------------------------------------
     # Public API
@@ -235,11 +238,28 @@ class TaskRouter:
                 importance="warm",
             )
 
-            return self._store.get_task(task_id)
+            # 15. Notify originating channel (best-effort)
+            final_task = self._store.get_task(task_id)
+            self._notify_originating_channel(final_task, findings)
+
+            return final_task
 
         except BudgetExceeded:
             self._safe_transition(task_id, current_state, TaskState.COST_PAUSED,
                                   actor="router", reason="budget exceeded")
+            raise
+
+        except WorkerProducedNothing as ex:
+            self._safe_transition(task_id, current_state, TaskState.FAILED,
+                                  actor="dispatcher", reason=str(ex)[:200])
+            self._memory.emit(
+                source="orchestrator",
+                event_type="task_failed",
+                subject=task_id,
+                body=f"Worker silent failure: {ex}",
+                dedup_key=f"orch-{task_id}-silent-failure",
+                importance="warm",
+            )
             raise
 
         except Exception as exc:
@@ -258,6 +278,41 @@ class TaskRouter:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _notify_originating_channel(self, task: TaskRecord, review: ReviewFindings) -> None:
+        """Best-effort notification to the originating channel. Never raises."""
+        if self._channels is None:
+            return
+        payload = task.raw_payload or {}
+        channel_name = payload.get("channel")
+        chat_id = payload.get("chat_id")
+        if not channel_name:
+            return
+        try:
+            adapter = self._channels.get(channel_name)
+        except KeyError:
+            return
+        body = self._format_notify_body(task, review)
+        target = str(chat_id) if chat_id else task.sender_identifier
+        try:
+            adapter.send(channel=target, body=body)
+        except Exception:
+            return  # best-effort
+
+    def _format_notify_body(self, task: TaskRecord, review: ReviewFindings) -> str:
+        n_findings = len(review.findings)
+        n_critical = sum(1 for f in review.findings if f.severity == "critical")
+        intent_short = (task.intent or "")[:200]
+        summary_short = (review.summary or "")[:200]
+        icon = "✅" if review.passed else "⚠️"
+        return (
+            f"{icon} *{task.task_id} delivered*\n"
+            f"\n"
+            f"*Intent:* {intent_short}\n"
+            f"*Verdict:* {summary_short}\n"
+            f"*Findings:* {n_findings} ({n_critical} critical)\n"
+            f"*Capture:* ~/.flyn/orchestrator/workspaces/{task.task_id}/"
+        )
 
     def _transition(
         self,

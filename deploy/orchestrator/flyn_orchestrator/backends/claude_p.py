@@ -11,16 +11,46 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ..cost import CostTracker
 
 from .base import WorkerResult, WorkerBackend
+from ..cost import BudgetExceeded
 from ..types import WorkerSpec
 
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 
 
+def _load_anthropic_api_key_from_profiles() -> Optional[str]:
+    """Read ANTHROPIC_API_KEY from auth-profiles.json if available."""
+    p = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
+    if not p.exists():
+        return None
+    try:
+        with open(p) as f:
+            d = json.load(f)
+        for key in ("anthropic:default", "anthropic"):
+            if key in d.get("profiles", {}):
+                return d["profiles"][key].get("token")
+    except Exception:
+        pass
+    return None
+
+
 class ClaudePBackend:
     name = "claude-p"
+
+    def _build_env(self) -> dict[str, str]:
+        """Build subprocess env, injecting ANTHROPIC_API_KEY if available."""
+        env = {**os.environ}
+        if "ANTHROPIC_API_KEY" not in env:
+            key = _load_anthropic_api_key_from_profiles()
+            if key:
+                env["ANTHROPIC_API_KEY"] = key
+        return env
 
     def _build_command(self, spec: WorkerSpec, prompt: str) -> list[str]:
         cmd = [
@@ -34,11 +64,11 @@ class ClaudePBackend:
             cmd.extend(["--allowedTools", ",".join(spec.allowed_tools)])
         return cmd
 
-    def run(self, spec: WorkerSpec, prompt: str) -> WorkerResult:
+    def run(self, spec: WorkerSpec, prompt: str, *, cost_tracker: Optional["CostTracker"] = None) -> WorkerResult:
         capture_path = Path(spec.worktree_path) / f"{spec.worker_id}.jsonl"
         capture_path.parent.mkdir(parents=True, exist_ok=True)
         start = time.time()
-        env = {**os.environ}  # inherit ANTHROPIC_API_KEY fallback if present
+        env = self._build_env()
         cmd = self._build_command(spec, prompt)
         cost = 0.0
         changed_files: list[str] = []
@@ -71,7 +101,28 @@ class ClaudePBackend:
                     if "usage" in ev:
                         usage = ev["usage"]
                         if isinstance(usage, dict) and "cost_usd" in usage:
-                            cost += float(usage["cost_usd"])
+                            cost_delta = float(usage["cost_usd"])
+                            cost += cost_delta
+                            if cost_tracker is not None and cost_delta:
+                                try:
+                                    cost_tracker.add(cost_delta)
+                                except BudgetExceeded:
+                                    proc.terminate()
+                                    try:
+                                        proc.wait(timeout=5)
+                                    except subprocess.TimeoutExpired:
+                                        proc.kill()
+                                        proc.wait(timeout=2)
+                                    capture.flush()
+                                    duration_ms = int((time.time() - start) * 1000)
+                                    return WorkerResult(
+                                        worker_id=spec.worker_id, exit_code=-1,
+                                        capture_path=capture_path,
+                                        cost_usd=cost_tracker.total_usd,
+                                        duration_ms=duration_ms,
+                                        changed_files=[],
+                                        summary="budget exceeded mid-run",
+                                    )
                     if "result" in ev and isinstance(ev["result"], dict):
                         summary = str(ev["result"].get("summary", ""))[:500]
                         cf = ev["result"].get("changed_files")

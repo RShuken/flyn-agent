@@ -1,0 +1,5 @@
+# .sanitize-allowlist — entries are <file>:<pattern-label>
+# Phase 1b finding #1 resolution. See PHASE-1-VERIFICATION-2026-05-15.md.
+backends/claude_p.py:--dangerously-skip-perms  # required for headless claude -p per claude-code docs
+adapters/channels/telegram.py:non-allowlisted-url:api.telegram.org  # legitimate Telegram bot API endpoint
+backends/codex_exec.py:non-allowlisted-url:developers.openai.com  # doc reference comment for Codex noninteractive API (T05)

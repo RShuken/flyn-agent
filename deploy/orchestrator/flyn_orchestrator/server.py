@@ -59,20 +59,21 @@ def build_app(
     builder_prompt = Path(__file__).parent / "prompts" / "builder.md"
     repo_fn = repo_path_for_workflow or _default_repo_for_workflow
 
-    task_router = TaskRouter(
-        store=store, dispatcher=dispatcher, worktree_mgr=wt_mgr,
-        memory=memory, repo_path_for_workflow=repo_fn,
-        builder_prompt_path=builder_prompt,
-        reviewer_invoker=reviewer_invoker,
-    )
-
-    # Adapter registries
+    # Adapter registries (built before router so we can pass channels through)
     channels = ChannelRegistry()
     channels.register(TelegramChannelAdapter())
     notifies = NotifyRegistry()
     notifies.register(StdoutNotifyAdapter())
     pms = PMRegistry()
     pms.register(LinearPMAdapter())
+
+    task_router = TaskRouter(
+        store=store, dispatcher=dispatcher, worktree_mgr=wt_mgr,
+        memory=memory, repo_path_for_workflow=repo_fn,
+        builder_prompt_path=builder_prompt,
+        reviewer_invoker=reviewer_invoker,
+        channel_registry=channels,  # NEW: wires outbound notify
+    )
 
     app = FastAPI(title="flyn-orchestrator", version="0.1.0")
 

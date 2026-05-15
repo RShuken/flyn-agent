@@ -50,3 +50,156 @@ def test_claude_p_allowed_tools_in_command(tmp_path):
     assert "--allowedTools" in cmd
     idx = cmd.index("--allowedTools")
     assert cmd[idx + 1] == "Read,Bash"
+
+
+def test_claude_p_includes_anthropic_api_key_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fallback-key")
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert env.get("ANTHROPIC_API_KEY") == "sk-ant-test-fallback-key"
+
+
+def test_claude_p_loads_anthropic_key_from_auth_profiles(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.claude_p._load_anthropic_api_key_from_profiles",
+        lambda: "sk-ant-from-profile",
+    )
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert env.get("ANTHROPIC_API_KEY") == "sk-ant-from-profile"
+
+
+def test_claude_p_does_not_set_key_if_none_available(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.claude_p._load_anthropic_api_key_from_profiles",
+        lambda: None,
+    )
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_codex_exec_constructs(tmp_path):
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    assert b.name == "codex-exec"
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="codex-exec", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=1.0,
+    )
+    cmd = b._build_command(spec, "hello")
+    assert cmd[0].endswith("codex") or cmd[0] == "codex"
+    assert "exec" in cmd
+    assert "--json" in cmd
+    assert "--sandbox" in cmd
+    assert "workspace-write" in cmd
+
+
+def test_codex_exec_registered_by_default():
+    from flyn_orchestrator.backends import get_backend
+    b = get_backend("codex-exec")
+    assert b.name == "codex-exec"
+
+
+def test_codex_exec_env_includes_openai_key_from_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-test-codex-key")
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    env = b._build_env()
+    assert env.get("OPENAI_API_KEY") == "sk-proj-test-codex-key"
+
+
+def test_codex_exec_env_loads_from_auth_profiles(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.codex_exec._load_openai_api_key_from_profiles",
+        lambda: "sk-proj-from-profile",
+    )
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    env = b._build_env()
+    assert env.get("OPENAI_API_KEY") == "sk-proj-from-profile"
+
+
+def test_claude_p_aborts_on_budget_exceeded(tmp_path, monkeypatch):
+    """Backend must terminate the worker when accumulated cost exceeds budget."""
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    from flyn_orchestrator.cost import CostTracker
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="claude-p", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=0.10,
+    )
+    fake_stdout_lines = [
+        '{"type":"message","content":"hello"}\n',
+        '{"type":"usage","usage":{"cost_usd":0.05}}\n',
+        '{"type":"usage","usage":{"cost_usd":0.10}}\n',  # cumulative 0.15 > 0.10 budget
+        '{"type":"message","content":"should not appear"}\n',
+    ]
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = iter(fake_stdout_lines)
+            self._terminated = False
+
+        def terminate(self):
+            self._terminated = True
+
+        def wait(self, timeout=None):
+            return -1
+
+        def kill(self):
+            pass
+
+    fake_proc = FakeProc()
+    monkeypatch.setattr("flyn_orchestrator.backends.claude_p.subprocess.Popen", lambda *a, **kw: fake_proc)
+    backend = ClaudePBackend()
+    tracker = CostTracker(budget_usd=0.10)
+    result = backend.run(spec, "hi", cost_tracker=tracker)
+    assert result.exit_code == -1
+    assert "budget exceeded" in result.summary.lower()
+    assert fake_proc._terminated, "worker subprocess was not terminated"
+
+
+def test_claude_p_under_budget_completes_normally(tmp_path, monkeypatch):
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    from flyn_orchestrator.cost import CostTracker
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="claude-p", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=1.00,
+    )
+    fake_stdout_lines = [
+        '{"type":"message","content":"hello"}\n',
+        '{"type":"usage","usage":{"cost_usd":0.10}}\n',
+        '{"type":"result","result":{"summary":"done","changed_files":["x.py"]}}\n',
+    ]
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = iter(fake_stdout_lines)
+            self._terminated = False
+
+        def terminate(self):
+            self._terminated = True
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    fake_proc = FakeProc()
+    monkeypatch.setattr("flyn_orchestrator.backends.claude_p.subprocess.Popen", lambda *a, **kw: fake_proc)
+    backend = ClaudePBackend()
+    tracker = CostTracker(budget_usd=1.00)
+    result = backend.run(spec, "hi", cost_tracker=tracker)
+    assert result.exit_code == 0
+    assert not fake_proc._terminated
+    assert result.cost_usd > 0

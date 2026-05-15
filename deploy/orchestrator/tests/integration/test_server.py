@@ -34,15 +34,17 @@ def client(tmp_path: Path, repo: Path, monkeypatch):
 
     # Stub backend
     dispatcher = WorkerDispatcher()
-    def _run(spec, prompt):
+    def _run(spec, prompt, *, cost_tracker=None):
         wt = Path(spec.worktree_path)
         (wt / "hello.py").write_text('print("hi")\n')
         subprocess.run(["git", "-C", str(wt), "add", "."], check=True)
         # Allow exit code 1 (nothing to commit) — idempotent re-runs from TestClient BackgroundTasks
         subprocess.run(["git", "-C", str(wt), "commit", "-m", "add hello"], capture_output=True)
+        cap = wt / f"{spec.worker_id}.jsonl"
+        cap.write_text('{"type":"message","content":"created hello.py"}\n' * 5)
         return WorkerResult(
             worker_id=spec.worker_id, exit_code=0,
-            capture_path=wt / f"{spec.worker_id}.jsonl",
+            capture_path=cap,
             cost_usd=0.01, duration_ms=50,
             changed_files=["hello.py"], summary="created hello.py",
         )

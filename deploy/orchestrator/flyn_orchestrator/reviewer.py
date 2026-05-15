@@ -43,6 +43,16 @@ def _extract_json(text: str) -> Optional[dict]:
 def review(*, worker_id: str, requirements: str, diff: str, test_results: str,
            worktree_path: str, backend_name: str = "claude-p",
            backend: Optional[WorkerBackend] = None) -> ReviewFindings:
+    # Short-circuit on empty diff: builder produced no output
+    if not diff.strip():
+        return ReviewFindings(
+            worker_id=worker_id + "-reviewer",
+            passed=False,
+            summary="builder produced no diff",
+            findings=[ReviewFinding(
+                severity="critical", area="correctness",
+                note="builder produced no diff — review skipped")])
+
     backend = backend or default_registry().get(backend_name)
     spec = WorkerSpec(
         task_id=worker_id, worker_id=worker_id + "-reviewer",

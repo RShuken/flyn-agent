@@ -16,9 +16,32 @@ class WorktreeManager:
         target = self._path_for(task_id)
         if target.exists():
             return target
-        # If branch already exists, just point worktree at it; else create
-        # `git worktree add <path> -b <branch>` from base or `git worktree add <path> <branch>` if branch exists
-        # Try create-new-branch first; if it fails, fall back to existing branch.
+        # Step 1: Prune stale worktree registrations
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=repo_path, check=False, capture_output=True,
+        )
+        # Step 2: If the branch exists but has no live worktree, force-delete it
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--list", branch],
+                cwd=repo_path, check=True, capture_output=True, text=True,
+            )
+            if result.stdout.strip():
+                # Branch exists — check if any worktree uses it
+                wt_list = subprocess.run(
+                    ["git", "worktree", "list", "--porcelain"],
+                    cwd=repo_path, check=False, capture_output=True, text=True,
+                ).stdout
+                if f"branch refs/heads/{branch}" not in wt_list:
+                    # Orphan branch — force-delete
+                    subprocess.run(
+                        ["git", "branch", "-D", branch],
+                        cwd=repo_path, check=False, capture_output=True,
+                    )
+        except subprocess.CalledProcessError:
+            pass  # If git branch lookup fails, fall through to add
+        # Step 3: Attempt worktree add (first as new branch, then as existing)
         try:
             subprocess.run(
                 ["git", "worktree", "add", "-b", branch, str(target)],
