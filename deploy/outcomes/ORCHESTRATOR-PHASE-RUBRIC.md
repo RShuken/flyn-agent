@@ -15,8 +15,8 @@
 
 | Phase | Status | Score | Ship-gate |
 |---|---|---|---|
-| **0 — MemoryRouter** | ✅ SHIPPED 2026-05-15 | 10/10 | PR #1 (manual ship-gate run, merging pending) |
-| **1 — Orchestrator foundation** | ⬜ NOT STARTED | 0/14 | depends on Phase 0 merged |
+| **0 — MemoryRouter** | ✅ SHIPPED + MERGED 2026-05-15 | 11/12 | PR #1 merged at `03f42a0` on main; one 🟡 on manual Telegram-DM step |
+| **1 — Orchestrator foundation (MVP)** | 🟡 MVP SHIPPED, AWAITING E2E | 11/14 (78%) | branch `feat/orchestrator-foundation-phase-1`, service live on :8300, awaiting manual ship-gate playbook |
 | **2 — Dev workflow** | ⬜ NOT STARTED | 0/10 | depends on Phase 1 |
 | **3 — Research workflow** | ⬜ NOT STARTED | 0/7 | depends on Phase 1 |
 | **4 — Content workflow** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 |
@@ -25,7 +25,7 @@
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 14/79 criteria (18%)**.
+**Overall completion: 26/79 criteria (33%)** — Phase 0 shipped + merged; Phase 1 MVP shipped overnight 2026-05-15, awaiting manual e2e + Phase 1b enrichment + Phases 2-7.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
