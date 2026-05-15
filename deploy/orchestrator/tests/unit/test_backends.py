@@ -50,3 +50,35 @@ def test_claude_p_allowed_tools_in_command(tmp_path):
     assert "--allowedTools" in cmd
     idx = cmd.index("--allowedTools")
     assert cmd[idx + 1] == "Read,Bash"
+
+
+def test_claude_p_includes_anthropic_api_key_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fallback-key")
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert env.get("ANTHROPIC_API_KEY") == "sk-ant-test-fallback-key"
+
+
+def test_claude_p_loads_anthropic_key_from_auth_profiles(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.claude_p._load_anthropic_api_key_from_profiles",
+        lambda: "sk-ant-from-profile",
+    )
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert env.get("ANTHROPIC_API_KEY") == "sk-ant-from-profile"
+
+
+def test_claude_p_does_not_set_key_if_none_available(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.claude_p._load_anthropic_api_key_from_profiles",
+        lambda: None,
+    )
+    from flyn_orchestrator.backends.claude_p import ClaudePBackend
+    b = ClaudePBackend()
+    env = b._build_env()
+    assert "ANTHROPIC_API_KEY" not in env
