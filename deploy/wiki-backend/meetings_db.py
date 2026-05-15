@@ -8,11 +8,12 @@ one connection per request via FastAPI dependency.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 DB_PATH = Path(os.environ.get(
     "FLYN_MEETINGS_DB",
@@ -84,6 +85,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    """Idempotent migrations + WAL mode setup. Safe to call repeatedly."""
     global _initialized
     with _init_lock:
         if _initialized:
@@ -99,7 +101,8 @@ def init_db() -> None:
 
 
 def get_conn() -> Iterator[sqlite3.Connection]:
-    """FastAPI dependency."""
+    """FastAPI dependency. Yields a fresh connection per request."""
+    init_db()
     conn = _connect()
     try:
         yield conn
@@ -108,9 +111,16 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 
 
 def audit(conn: sqlite3.Connection, actor: str, action: str,
-          meeting_id: str | None = None, payload: str = "{}") -> None:
+          meeting_id: str | None = None,
+          payload: dict[str, Any] | None = None) -> None:
+    """Append a row to the meeting_audit table.
+
+    Mirrors db.py's audit() pattern: takes a dict, serializes internally
+    with sort_keys=True for deterministic output.
+    """
     conn.execute(
         "INSERT INTO meeting_audit (meeting_id, actor, action, payload) "
         "VALUES (?, ?, ?, ?)",
-        (meeting_id, actor, action, payload),
+        (meeting_id, actor, action,
+         json.dumps(payload or {}, sort_keys=True)),
     )

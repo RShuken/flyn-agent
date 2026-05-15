@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,15 @@ os.environ["FLYN_MEETINGS_DB"] = _tmpdb.name
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import meetings_db as mdb  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_db():
+    """Reset the meetings_db module state + DB file before each test
+    so tests don't depend on order."""
+    Path(_tmpdb.name).unlink(missing_ok=True)
+    mdb._initialized = False
+    yield
 
 
 def test_init_creates_tables():
@@ -57,7 +67,7 @@ def test_event_id_unique_constraint():
             "INSERT INTO meeting_events (event_id, raw_payload) VALUES (?, ?)",
             ("ev-dup", "{}"),
         )
-        with pytest.raises(Exception):  # IntegrityError
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO meeting_events (event_id, raw_payload) VALUES (?, ?)",
                 ("ev-dup", "{}"),
