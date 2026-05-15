@@ -127,3 +127,50 @@ def test_cool_separates_days(tmp_path):
     a2.write(e(2))
     assert (tmp_path / "orchestrator" / "2026-05-15-cool-events.jsonl").exists()
     assert (tmp_path / "orchestrator" / "2026-05-16-cool-events.jsonl").exists()
+
+
+from unittest.mock import MagicMock, patch
+from flyn_memory_router.adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
+
+
+def test_warm_graphiti_posts_episode():
+    fake_client = MagicMock()
+    fake_client.post.return_value.status_code = 200
+    fake_client.post.return_value.json.return_value = {"uuid": "abc-123"}
+    a = WarmGraphitiAdapter(graphiti_url="http://localhost:8100", http=fake_client)
+    e = InboundEvent(source="orchestrator", event_type="task_completed",
+                     subject="T-0042", body="T-0042 completed: PR #48 merged, deploy fired.",
+                     dedup_key="orch-T-0042-completed")
+    res = a.write(e)
+    assert res.ok is True
+    fake_client.post.assert_called_once()
+    call_args = fake_client.post.call_args
+    assert call_args[0][0].endswith("/api/episode")
+    body = call_args[1]["json"]
+    assert body["body"] == e.body
+    assert body["name"].startswith("T-0042")
+
+
+def test_warm_graphiti_returns_not_ok_on_500():
+    fake_client = MagicMock()
+    fake_client.post.return_value.status_code = 500
+    fake_client.post.return_value.text = "internal error"
+    a = WarmGraphitiAdapter(graphiti_url="http://localhost:8100", http=fake_client)
+    e = InboundEvent(source="x", event_type="x", subject="s",
+                     body="b" * 20, dedup_key="x")
+    res = a.write(e)
+    assert res.ok is False
+    assert "500" in res.detail
+
+
+def test_warm_workspace_file_writes_dated_markdown(tmp_path):
+    a = WarmWorkspaceFileAdapter(memory_dir=tmp_path)
+    e = InboundEvent(source="orchestrator", event_type="task_completed",
+                     subject="T-0042", body="merged + deployed",
+                     dedup_key="orch-T-0042-completed")
+    a.write(e)
+    files = list(tmp_path.glob("*.md"))
+    assert len(files) == 1
+    text = files[0].read_text()
+    assert "merged + deployed" in text
+    assert "T-0042" in text
