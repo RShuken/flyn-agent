@@ -1,0 +1,35 @@
+# Phase 2 dev workflow policy.
+# See spec §3 dev workflow row + ORCHESTRATOR-PHASE-RUBRIC.md Phase 2 for criteria.
+name: dev
+intent_patterns:
+  - "build"
+  - "fix"
+  - "add feature"
+  - "implement"
+  - "refactor"
+  - "create"
+roles:
+  - name: pm
+    model: claude
+    prompt: pm_dev
+  - name: builder
+    model: claude
+    prompt: builder
+    parallel: true       # honored when file-domain locks (Phase 2 Task 7) prove non-overlap
+  - name: reviewer
+    model: claude
+    prompt: reviewer
+    readonly: true
+flow:
+  - intake
+  - discovery
+  - plan_approval
+  - build
+  - review
+  - pr
+  - human_approval
+  - merge
+approval_gates:
+  plan_approval: teammate
+  human_approval: teammate_owns_repo
+budget_default_usd: 5.0
