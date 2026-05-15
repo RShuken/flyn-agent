@@ -47,3 +47,21 @@ def test_review_unparseable_marks_failed(tmp_path: Path):
                 test_results="z", worktree_path=str(tmp_path), backend=backend)
     assert rf.passed is False
     assert any(f.severity == "critical" for f in rf.findings)
+
+
+def test_review_empty_diff_short_circuits_to_critical(tmp_path: Path):
+    backend = MagicMock()
+    rf = review(worker_id="w-001", requirements="add hello", diff="",
+                test_results="ok", worktree_path=str(tmp_path), backend=backend)
+    assert rf.passed is False
+    assert any(f.severity == "critical" for f in rf.findings)
+    assert not backend.run.called
+
+
+def test_review_whitespace_diff_short_circuits(tmp_path: Path):
+    backend = MagicMock()
+    rf = review(worker_id="w-001", requirements="add hello", diff="   \n  \n\t",
+                test_results="ok", worktree_path=str(tmp_path), backend=backend)
+    assert rf.passed is False
+    assert any(f.severity == "critical" for f in rf.findings)
+    assert not backend.run.called
