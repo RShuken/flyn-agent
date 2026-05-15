@@ -38,3 +38,29 @@ def test_multiple_per_tier():
 def test_empty_tier_returns_empty():
     reg = AdapterRegistry()
     assert reg.for_tier(Tier.COLD) == []
+
+
+from flyn_memory_router.adapters.cold import ColdCapturesIndexAdapter
+
+
+def test_cold_adapter_appends_jsonl(tmp_path):
+    idx = tmp_path / "captures_index.jsonl"
+    a = ColdCapturesIndexAdapter(index_path=idx)
+    e = InboundEvent(source="orchestrator", event_type="stream_json_delta",
+                     subject="T-0042/w-001", body="raw delta line",
+                     dedup_key="orch-T-0042-w-001-seq-7")
+    res = a.write(e)
+    assert res.ok is True
+    lines = idx.read_text().strip().splitlines()
+    assert len(lines) == 1
+    assert "T-0042/w-001" in lines[0]
+
+
+def test_cold_adapter_multiple_writes_append(tmp_path):
+    idx = tmp_path / "captures_index.jsonl"
+    a = ColdCapturesIndexAdapter(index_path=idx)
+    for i in range(3):
+        a.write(InboundEvent(source="orchestrator", event_type="capture_chunk",
+                             subject=f"T-0001/w-001/seq-{i}", body=f"chunk-{i}",
+                             dedup_key=f"k-{i}"))
+    assert len(idx.read_text().strip().splitlines()) == 3
