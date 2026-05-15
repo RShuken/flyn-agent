@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>           <string>ai.flyn.pulse.orchestrator-overnight-digest</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{HOME}}/AI/openclaw/flyn-agent/deploy/pulses/orchestrator_overnight_digest.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>FLYN_AGENT_ROOT</key>      <string>{{HOME}}/AI/openclaw/flyn-agent</string>
+      <key>FLYN_PHASE1_WORKTREE</key> <string>{{HOME}}/AI/openclaw/flyn-agent-phase-1</string>
+      <key>FLYN_PHASE1_BRANCH</key>   <string>feat/orchestrator-foundation-phase-1</string>
+      <key>FLYN_RYAN_CHAT_ID</key>    <string>7191564227</string>
+      <key>FLYN_DIGEST_SINCE</key>    <string>2026-05-15 02:00</string>
+      <key>PATH</key>                 <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>   <integer>6</integer>
+      <key>Minute</key> <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key> <string>/tmp/flyn-orchestrator-overnight-digest.log</string>
+    <key>StandardErrorPath</key><string>/tmp/flyn-orchestrator-overnight-digest.log</string>
+  </dict>
+</plist>
