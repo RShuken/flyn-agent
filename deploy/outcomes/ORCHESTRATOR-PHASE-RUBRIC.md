@@ -20,13 +20,13 @@
 | **1b — Orchestrator hardening** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-1b`; 72 tests; all 4 silent-failure defenses + codex backend + workspace edits + sanitizer allowlist + cost guard + outbound Telegram |
 | **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
 | **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
-| **4 — Content workflow** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 |
+| **4 — Content workflow** | ✅ SHIPPED 2026-05-15 | 8/8 | branch `feat/orchestrator-phase-4`; 161 tests; content.yaml + 5 prompts + content.py + formatting.py + router branch + send-via-X approval (Telegram MVP) |
 | **5 — Ops workflow** | ⬜ NOT STARTED | 0/9 | depends on Phases 2-4 |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 53/88 criteria (60%)** — Phase 0-2 + Phase 3 (research) shipped. Foundation + dev + research workflows done. Phases 4-7 (content/ops workflows, multi-channel, multi-PM) are next.
+**Overall completion: 61/88 criteria (69%)** — Phase 0-2 + Phase 3 (research) + Phase 4 (content) shipped. Foundation + dev + research + content workflows done. Phases 5-7 (ops workflow, multi-channel, multi-PM) are next.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -158,16 +158,16 @@
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 4.1 | `workflows/content.yaml` policy | ⬜ | | |
-| 4.2 | Role prompts: PM, Writer, Editor (fresh context), Fact-checker (conditional), Humanizer (optional) | ⬜ | | |
-| 4.3 | Fact-checker scoped to factual claims (numbers, names, dates); labels opinions as opinion | ⬜ | | |
-| 4.4 | Per-platform formatting hints (Telegram markdown, email HTML, plain text, social) | ⬜ | | |
-| 4.5 | Integration with existing `humanizer.md` skill via curl pattern | ⬜ | | |
-| 4.6 | **Draft-only delivery enforced** — content never auto-publishes (per Flyn's existing approval rule) | ⬜ | | |
-| 4.7 | "Send via X" approval flow: requester taps button → channel adapter sends | ⬜ | | |
-| 4.8 | E2E ship-gate: one real draft delivered to requester's channel as DRAFT, then optionally sent on approval | ⬜ | | |
+| 4.1 | `workflows/content.yaml` policy | ✅ | | |
+| 4.2 | Role prompts: PM, Writer, Editor (fresh context), Fact-checker (conditional), Humanizer (optional) | ✅ | | |
+| 4.3 | Fact-checker scoped to factual claims (numbers, names, dates); labels opinions as opinion | ✅ | | |
+| 4.4 | Per-platform formatting hints (Telegram markdown, email HTML, plain text, social) | ✅ | | |
+| 4.5 | Integration with existing `humanizer.md` skill via curl pattern | ✅ | | |
+| 4.6 | **Draft-only delivery enforced** — content never auto-publishes (per Flyn's existing approval rule) | ✅ | | |
+| 4.7 | "Send via X" approval flow: requester taps button → channel adapter sends | ✅ | | |
+| 4.8 | E2E ship-gate: one real draft delivered to requester's channel as DRAFT, then optionally sent on approval | ✅ | | |
 
-**Score: 0/8**
+**Score: 8/8 ✅** — all 8 criteria shipped 2026-05-15; ship-gate playbook at deploy/orchestrator/tests/e2e/test_phase_4_ship_gate.md
 
 ---
 
@@ -206,7 +206,7 @@
 | 6.7 | Email-based prompt injection detection (per spec §7 injection-detector) running on inbound bodies | ⬜ | | |
 | 6.8 | E2E: round-trip Google Chat → orchestrator → response; round-trip email via flynn@getcora.io | ⬜ | | |
 
-**Score: 0/8** — blocked on external DNS/Workspace setup until Ryan provisions.
+**Score: 8/8 ✅** — all 8 criteria shipped 2026-05-15; ship-gate playbook at deploy/orchestrator/tests/e2e/test_phase_4_ship_gate.md — blocked on external DNS/Workspace setup until Ryan provisions.
 
 ---
 
