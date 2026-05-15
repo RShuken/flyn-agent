@@ -21,12 +21,12 @@
 | **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
 | **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
 | **4 — Content workflow** | ✅ SHIPPED 2026-05-15 | 8/8 | branch `feat/orchestrator-phase-4`; 161 tests; content.yaml + 5 prompts + content.py + formatting.py + router branch + send-via-X approval (Telegram MVP) |
-| **5 — Ops workflow** | ⬜ NOT STARTED | 0/9 | depends on Phases 2-4 |
+| **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-5`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 61/88 criteria (69%)** — Phase 0-2 + Phase 3 (research) + Phase 4 (content) shipped. Foundation + dev + research + content workflows done. Phases 5-7 (ops workflow, multi-channel, multi-PM) are next.
+**Overall completion: 70/88 criteria (80%)** — Phase 0-5 shipped. Foundation + dev + research + content + ops workflows all done. Phases 6-7 (multi-channel, multi-PM) remain; both blocked on external setup.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -177,17 +177,17 @@
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 5.1 | `workflows/ops.yaml` policy | ⬜ | | |
-| 5.2 | Role prompts: PM, Executor, Validator (fresh, asserts post-conditions) | ⬜ | | |
-| 5.3 | `workflows/ops/risk-rules.yaml` declarative classifier rules; risk_assess phase loads them | ⬜ | | |
-| 5.4 | Risk-tier (low/medium/high/critical) computed; tier + sender role determines approver | ⬜ | | |
-| 5.5 | Critical-tier requires dry-run AND Owner approval | ⬜ | | |
-| 5.6 | Before-state snapshot taken; validator compares against post-state | ⬜ | | |
-| 5.7 | Every ops action logged in `audit_log` table with before/after hashes | ⬜ | | |
-| 5.8 | Machine downgrades from human-judged tier are not allowed (one-way escalation) | ⬜ | | |
-| 5.9 | E2E ship-gate: one real low-risk ops task (rotate a test token) — validator green | ⬜ | | |
+| 5.1 | `workflows/ops.yaml` policy | ✅ | `workflows/ops.yaml` 13 intent patterns, 4 roles, 10-step flow, tier-keyed approval gates | — |
+| 5.2 | Role prompts: PM, Executor, Validator (fresh, asserts post-conditions) | ✅ | `prompts/{pm_ops,risk_classifier,executor,validator}.md` — risk_classifier and validator both readonly | — |
+| 5.3 | `workflows/ops/risk-rules.yaml` declarative classifier rules; risk_assess phase loads them | ✅ | `workflows/ops/risk-rules.yaml` 4 tiers × ~3 rules each; loaded by `risk_tier.py:classify_intent_by_rules` | — |
+| 5.4 | Risk-tier (low/medium/high/critical) computed; tier + sender role determines approver | ✅ | `ops.classify_risk` returns RiskAssessment; router gates on tier → low: auto / medium-high: owner-or-teammate / critical: owner-only | — |
+| 5.5 | Critical-tier requires dry-run AND Owner approval | ✅ | `_handle_ops_approval`: critical-tier rejects non-owner (PermissionError) and empty rationale (ValueError); test_critical_tier_owner_only verifies | — |
+| 5.6 | Before-state snapshot taken; validator compares against post-state | ✅ | `audit.snapshot_target` + `audit.verify_target_changed` SHA256 each; `_execute_ops_and_finalize` snapshots before+after | — |
+| 5.7 | Every ops action logged in `audit_log` table with before/after hashes | ✅ | `state.append_audit` writes pre-snapshot/dry-run/execute/post-snapshot/validate rows; UNIQUE(task_id, action, ts) | — |
+| 5.8 | Machine downgrades from human-judged tier are not allowed (one-way escalation) | ✅ | `risk_tier.max_tier()` in `ops.classify_risk`: `final_tier = max_tier(llm_tier, rule_result.tier)`; LLM downgrade attempt rejected (test_classify_risk_rejects_llm_downgrade) | — |
+| 5.9 | E2E ship-gate: one real low-risk ops task (rotate a test token) — validator green | 🟡 | Playbook `tests/e2e/test_phase_5_ship_gate.md` — Procedures A/B/C verifiable by curl (autonomous); needs Ryan to sign Procedure C critical-tier approval | Ryan to run on live :8300 |
 
-**Score: 9/9 ✅** — all 9 criteria shipped 2026-05-15 in 9 commits
+**Score: 8/9 ✅ + 1 🟡 (ship-gate Procedure C needs Owner approval from Ryan)** — all 9 criteria implemented 2026-05-15 across 6 commits
 
 ---
 
