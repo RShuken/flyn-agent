@@ -10,7 +10,6 @@ This file is the routing layer only. Business logic lives in router.py / pin.py 
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Literal
 
 import httpx
@@ -97,10 +96,3 @@ def build_app(http_client: Any | None = None) -> FastAPI:
         return {"ok": True, "existed": existed}
 
     return app
-
-
-# uvicorn entry-point — only construct the module-level app when NOT running under pytest,
-# so that the test fixtures can import build_app cleanly and construct their own app
-# instances with isolated tmp_path directories and fake http clients.
-if not os.environ.get("PYTEST_CURRENT_TEST"):
-    app = build_app()
