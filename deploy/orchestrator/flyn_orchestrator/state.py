@@ -38,6 +38,20 @@ CREATE TABLE IF NOT EXISTS task_id_counter (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL,
+    before_hash TEXT,
+    after_hash TEXT,
+    payload TEXT,
+    ts TEXT NOT NULL,
+    UNIQUE(task_id, action, ts)
+);
+CREATE INDEX IF NOT EXISTS audit_log_task_id_idx ON audit_log(task_id);
 """
 
 
@@ -135,3 +149,35 @@ class StateStore:
             ).fetchall()
         return [{"from_state": r[0], "to_state": r[1], "actor": r[2], "ts": r[3], "reason": r[4]}
                 for r in rows]
+
+    def append_audit(self, *, task_id: str, actor: str, action: str, target: str,
+                     before_hash: Optional[str] = None,
+                     after_hash: Optional[str] = None,
+                     payload: Optional[dict[str, Any]] = None) -> int:
+        """Append a row to audit_log. Returns the inserted row id."""
+        import json as _json
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO audit_log(task_id, actor, action, target, "
+                "before_hash, after_hash, payload, ts) VALUES (?,?,?,?,?,?,?,?)",
+                (task_id, actor, action, target, before_hash, after_hash,
+                 _json.dumps(payload) if payload else None, ts),
+            )
+            return cur.lastrowid
+
+    def list_audit(self, task_id: str) -> list[dict[str, Any]]:
+        import json as _json
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT actor, action, target, before_hash, after_hash, payload, ts "
+                "FROM audit_log WHERE task_id = ? ORDER BY id",
+                (task_id,),
+            ).fetchall()
+        return [
+            {"actor": r[0], "action": r[1], "target": r[2],
+             "before_hash": r[3], "after_hash": r[4],
+             "payload": _json.loads(r[5]) if r[5] else None,
+             "ts": r[6]}
+            for r in rows
+        ]
