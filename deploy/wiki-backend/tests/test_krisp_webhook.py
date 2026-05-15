@@ -68,3 +68,28 @@ def test_valid_token_returns_200(client):
     assert body["received"] is True
     assert body["event_id"] == "ev-001"
     assert body["duplicate"] is False
+
+
+def test_duplicate_event_id_returns_duplicate_true(client):
+    """The core idempotency guarantee: re-POSTing the same event_id
+    returns 200 with duplicate=true and does NOT raise."""
+    payload = {"event_id": "ev-idem-once"}
+    headers = {"X-OL-Krisp-Token": "krisp-test-token"}
+    r1 = client.post("/api/meetings/krisp", json=payload, headers=headers)
+    r2 = client.post("/api/meetings/krisp", json=payload, headers=headers)
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json()["duplicate"] is False
+    assert r2.json()["duplicate"] is True
+
+
+def test_falsy_event_id_uses_hash_fallback_correctly(client):
+    """Confirms _event_id_from's tightening: an explicit empty-string
+    event_id falls through to the hash, NOT taken as the literal ID."""
+    headers = {"X-OL-Krisp-Token": "krisp-test-token"}
+    r = client.post("/api/meetings/krisp", json={"event_id": ""}, headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    # The hash fallback is 32 hex chars; empty-string event_id should not be used.
+    assert body["event_id"] != ""
+    assert len(body["event_id"]) == 32
