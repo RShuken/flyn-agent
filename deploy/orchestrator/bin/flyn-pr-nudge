@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""flyn-pr-nudge: daily heartbeat component that nudges humans when their PRs sit idle.
+
+Queries `gh pr list` for PRs Flyn opened, filters to >48h old, looks each up
+in the orchestrator's state.db to find the originating sender, and posts a
+Telegram nudge.
+
+Env:
+  FLYN_ORCHESTRATOR_HOME  — orchestrator install dir (default ~/.flyn/orchestrator)
+  FLYN_DEFAULT_TEST_REPO  — repo to query (default <home>/test-repo)
+  FLYN_PR_NUDGE_THRESHOLD_HOURS — staleness threshold (default 48)
+  FLYN_RYAN_CHAT_ID — fallback chat for nudges when sender info missing
+
+This file lives at <pkg>/bin/flyn-pr-nudge; it `sys.path.insert` to the package
+parent so it can import flyn_orchestrator modules.
+"""
+from __future__ import annotations
+import json
+import os
+import re
+import subprocess
+import sqlite3
+import sys
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+GH_BIN = os.environ.get("GH_BIN", "gh")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def list_open_flyn_prs(repo_path: Path) -> list[dict]:
+    """Return a list of {number, createdAt, headRefName, url, title} dicts."""
+    if not repo_path.exists():
+        return []
+    try:
+        res = subprocess.run(
+            [GH_BIN, "pr", "list",
+             "--author", "@me",
+             "--state", "open",
+             "--json", "number,createdAt,headRefName,url,title",
+             "--limit", "50"],
+            cwd=repo_path, capture_output=True, text=True, check=True, timeout=30,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"flyn-pr-nudge: gh pr list failed: {e.stderr.strip()[:200]}", file=sys.stderr)
+        return []
+    except subprocess.TimeoutExpired:
+        print("flyn-pr-nudge: gh pr list timed out", file=sys.stderr)
+        return []
+    try:
+        return json.loads(res.stdout)
+    except json.JSONDecodeError:
+        print("flyn-pr-nudge: gh pr list returned non-JSON", file=sys.stderr)
+        return []
+
+
+def is_stale(pr: dict, threshold_hours: int = 48) -> bool:
+    """A PR is stale if its createdAt is more than threshold_hours ago."""
+    try:
+        created = datetime.fromisoformat(pr["createdAt"].replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return False
+    age = _now() - created
+    return age >= timedelta(hours=threshold_hours)
+
+
+def task_id_from_branch(head_ref_name: str) -> str | None:
+    """Extract task_id from a branch like 'flyn/T-0042'."""
+    m = re.match(r"^flyn/(T-\d+)$", head_ref_name)
+    return m.group(1) if m else None
+
+
+def lookup_task(db_path: Path, task_id: str) -> dict | None:
+    """Return {sender_identifier, sender_role, raw_payload (dict)} or None."""
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT sender_identifier, sender_role, raw_payload FROM tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    sender_id, sender_role, payload_json = row
+    try:
+        payload = json.loads(payload_json) if payload_json else {}
+    except json.JSONDecodeError:
+        payload = {}
+    return {"sender_identifier": sender_id, "sender_role": sender_role, "raw_payload": payload}
+
+
+def _load_bot_token() -> str:
+    """Read Telegram bot token from openclaw.json or auth-profiles.json."""
+    p = Path.home() / ".openclaw" / "openclaw.json"
+    if p.exists():
+        try:
+            return json.load(open(p)).get("channels", {}).get("telegram", {}).get("botToken", "")
+        except Exception:
+            pass
+    p2 = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
+    if p2.exists():
+        try:
+            return json.load(open(p2)).get("profiles", {}).get("telegram:default", {}).get("token", "")
+        except Exception:
+            pass
+    return ""
+
+
+def send_nudge(*, chat_id: str, thread_id: int | None, pr: dict, age_hours: int, task_id: str | None) -> bool:
+    """Best-effort Telegram nudge. Returns True if the call succeeded."""
+    token = _load_bot_token()
+    if not token:
+        print("flyn-pr-nudge: no bot token; cannot send", file=sys.stderr)
+        return False
+    age_days = max(1, age_hours // 24)
+    title = pr.get("title") or pr.get("headRefName", "PR")
+    body = (
+        f"👋 *PR #{pr['number']}* has been waiting for your review for "
+        f"{age_days} day{'s' if age_days != 1 else ''}.\n\n"
+        f"*{title}*\n"
+        f"{pr['url']}\n\n"
+        f"Reply *walk me through it* for a non-technical explainer."
+    )
+    fields = {"chat_id": chat_id, "text": body, "parse_mode": "Markdown"}
+    if thread_id is not None:
+        fields["message_thread_id"] = thread_id
+    data = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=data, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            return True
+    except Exception as e:
+        print(f"flyn-pr-nudge: send failed: {e}", file=sys.stderr)
+        return False
+
+
+def main() -> int:
+    home = Path(os.environ.get("FLYN_ORCHESTRATOR_HOME",
+                                str(Path.home() / ".flyn" / "orchestrator")))
+    repo_path = Path(os.environ.get("FLYN_DEFAULT_TEST_REPO",
+                                     str(home / "test-repo")))
+    threshold = int(os.environ.get("FLYN_PR_NUDGE_THRESHOLD_HOURS", "48"))
+    fallback_chat = os.environ.get("FLYN_RYAN_CHAT_ID", "7191564227")
+    db = home / "data" / "state.db"
+
+    prs = list_open_flyn_prs(repo_path)
+    print(f"flyn-pr-nudge: found {len(prs)} open flyn-authored PRs in {repo_path}", file=sys.stderr)
+
+    nudged = 0
+    for pr in prs:
+        if not is_stale(pr, threshold):
+            continue
+        task_id = task_id_from_branch(pr.get("headRefName", ""))
+        # Compute age in hours
+        try:
+            created = datetime.fromisoformat(pr["createdAt"].replace("Z", "+00:00"))
+            age_hours = int((_now() - created).total_seconds() // 3600)
+        except (KeyError, ValueError):
+            age_hours = threshold
+        chat_id = fallback_chat
+        thread_id = None
+        if task_id:
+            info = lookup_task(db, task_id)
+            if info:
+                payload = info.get("raw_payload") or {}
+                chat_id = str(payload.get("chat_id") or fallback_chat)
+                thread_id = payload.get("thread_id")
+        if send_nudge(chat_id=chat_id, thread_id=thread_id, pr=pr,
+                      age_hours=age_hours, task_id=task_id):
+            nudged += 1
+            print(f"flyn-pr-nudge: nudged PR #{pr['number']} (task={task_id}, "
+                  f"age={age_hours}h, chat={chat_id})", file=sys.stderr)
+    print(f"flyn-pr-nudge: sent {nudged} nudges", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
