@@ -105,3 +105,33 @@ class NewWebhook(BaseModel):
     event_types: list[str] = Field(default_factory=lambda: ["*"])
     secret: str | None = None
     label: str | None = None
+
+
+# --- Meeting inbox models -------------------------------------------------
+
+
+class MeetingRow(BaseModel):
+    """One row in the meetings table."""
+    meeting_id: str
+    title: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    duration_seconds: int | None = None
+    meeting_url: str | None = None
+    attendees: list[dict] = Field(default_factory=list)
+    transcript_text: str | None = None
+    notes_text: str | None = None
+    outline_text: str | None = None
+    key_points_text: str | None = None
+    status: str = "pending"
+    routed_project: str | None = None
+    routed_commit_sha: str | None = None
+    classifier_reason: str | None = None
+    classifier_confidence: str | None = None
+
+
+class KrispWebhookAck(BaseModel):
+    """Response we send back to Krisp."""
+    received: bool
+    event_id: str
+    duplicate: bool = False
