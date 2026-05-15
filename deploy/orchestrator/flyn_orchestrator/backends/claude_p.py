@@ -26,6 +26,7 @@ class ClaudePBackend:
         cmd = [
             CLAUDE_BIN, "-p", prompt,
             "--output-format", "stream-json",
+            "--verbose",
             "--max-turns", str(spec.max_turns),
             "--dangerously-skip-permissions",
         ]

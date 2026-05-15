@@ -25,7 +25,7 @@ fi
 # rsync code into target, excluding dev artifacts
 rsync -a --delete \
   --exclude='.venv/' --exclude='__pycache__/' --exclude='.pytest_cache/' \
-  --exclude='tests/' --exclude='*.egg-info/' \
+  --exclude='tests/' --exclude='*.egg-info/' --exclude='test-repo/' \
   "$HERE/" "$TARGET/"
 
 # python venv + install

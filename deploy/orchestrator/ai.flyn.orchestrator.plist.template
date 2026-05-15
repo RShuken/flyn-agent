@@ -20,7 +20,9 @@
       <key>FLYN_ORCHESTRATOR_PORT</key>     <string>8300</string>
       <key>FLYN_DEFAULT_BACKEND</key>       <string>claude-p</string>
       <key>FLYN_DEFAULT_TEST_REPO</key>     <string>{{HOME}}/.flyn/orchestrator/test-repo</string>
-      <key>PATH</key>                       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>PATH</key>                       <string>{{HOME}}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>CLAUDE_BIN</key>                 <string>{{HOME}}/.local/bin/claude</string>
+      <key>HOME</key>                       <string>{{HOME}}</string>
     </dict>
     <key>RunAtLoad</key>       <true/>
     <key>KeepAlive</key>       <true/>

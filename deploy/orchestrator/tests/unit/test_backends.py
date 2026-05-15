@@ -32,6 +32,7 @@ def test_claude_p_constructs(tmp_path):
     assert "-p" in cmd
     assert "--output-format" in cmd
     assert "stream-json" in cmd
+    assert "--verbose" in cmd
     assert "--max-turns" in cmd
     assert "5" in cmd
 
