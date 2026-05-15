@@ -89,6 +89,11 @@ def compose_digest(cfg: ProjectConfig, deadline_only: bool = False) -> str:
     if not graphiti_health():
         lines.append("_⚠️ Graphiti is down — running off repo markdown only._")
 
+    review_section = build_review_meetings_section()
+    if review_section:
+        lines.append(review_section)
+        lines.append("")
+
     return "\n".join(lines).rstrip()
 
 
@@ -229,6 +234,74 @@ def main() -> int:
     digest = compose_digest(cfg, deadline_only=args.deadline_only)
     deliver(cfg, digest, dry_run=args.dry_run)
     return 0
+
+
+import json as _json_for_review  # local alias — avoids touching the existing import block
+from pathlib import Path as _PathForReview
+
+
+def _list_known_project_slugs() -> list[str]:
+    """Best-effort: enumerate ~/.openclaw/projects/*/config.yaml."""
+    root = _PathForReview.home() / ".openclaw" / "projects"
+    if not root.exists():
+        return []
+    return sorted(
+        sub.name for sub in root.iterdir()
+        if sub.is_dir() and (sub / "config.yaml").exists()
+    )
+
+
+def build_review_meetings_section(state_path: _PathForReview | None = None) -> str:
+    """Query flyn-meetings.db for meetings in 'review' and render a
+    Telegram-friendly section with /route hints. Writes a JSON
+    state file so the /route command can resolve list indexes."""
+    import sys as _sys
+    _sys.path.insert(0, str(_PathForReview(__file__).resolve().parent.parent / "wiki-backend"))
+    import meetings_db as _mdb
+
+    _mdb.init_db()
+    conn = _mdb._connect()
+    try:
+        rows = conn.execute(
+            "SELECT meeting_id, title, started_at, duration_seconds, "
+            "attendees, classifier_reason FROM meetings "
+            "WHERE status='review' ORDER BY started_at DESC NULLS LAST"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return ""
+
+    state_path = state_path or (
+        _PathForReview.home() / ".openclaw" / "state" / "last-review-list.json"
+    )
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    slugs = _list_known_project_slugs()
+    lines = [f"🎤 *Unclassified meetings ({len(rows)})*", ""]
+    saved: list[dict] = []
+    for i, row in enumerate(rows, start=1):
+        attendees = []
+        try:
+            attendees = _json_for_review.loads(row["attendees"] or "[]")
+        except Exception:  # noqa: BLE001
+            pass
+        n_att = len(attendees)
+        dur_min = (row["duration_seconds"] or 0) // 60
+        when = (row["started_at"] or "?")[:16].replace("T", " ")
+        lines.append(
+            f"{i}. {when} — \"{row['title'] or '(no title)'}\" "
+            f"({dur_min}m, {n_att} attendees)"
+        )
+        for slug in slugs:
+            lines.append(f"   /route {i} {slug}")
+        lines.append(f"   /route {i} skip")
+        lines.append("")
+        saved.append({"index": i, "meeting_id": row["meeting_id"]})
+
+    state_path.write_text(_json_for_review.dumps(saved, indent=2))
+    return "\n".join(lines).rstrip() + "\n"
 
 
 if __name__ == "__main__":
