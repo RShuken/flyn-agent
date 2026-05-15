@@ -62,11 +62,16 @@ def build_app(http_client: Any | None = None) -> FastAPI:
     cold = ColdCapturesIndexAdapter(index_path=cfg.home / "captures_index.jsonl")
     lesson = LessonKnowledgeAdapter(knowledge_dir=cfg.knowledge_dir)
 
+    # Phase 0 fanout: hot events ONLY land in MEMORY.md. Per spec §2.5, hot also fans out to
+    # Graphiti + workspace/memory + captures index. Wire warm_gr, warm_ws, and cold under
+    # Tier.HOT in Phase 1.
     registry.register(Tier.HOT, hot)
     registry.register(Tier.WARM, warm_ws)
     registry.register(Tier.WARM, warm_gr)
     registry.register(Tier.COOL, cool)
     registry.register(Tier.COLD, cold)
+    # Phase 0 fanout: lesson events ONLY land in KNOWLEDGE/. Per spec §2.5, lesson also posts
+    # a Graphiti episode (event_type "lesson-learned"). Wire warm_gr under Tier.LESSON in Phase 1.
     registry.register(Tier.LESSON, lesson)
 
     router = Router(registry=registry, dedup=dedup)

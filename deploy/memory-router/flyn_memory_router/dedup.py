@@ -31,6 +31,7 @@ class DedupStore:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self._db_path)
         try:
+            conn.execute("PRAGMA journal_mode=WAL")
             yield conn
             conn.commit()
         finally:

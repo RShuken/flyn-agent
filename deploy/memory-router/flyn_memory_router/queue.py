@@ -1,5 +1,10 @@
 """Disk-persisted backpressure queue.
 
+Phase 0 status: class is built and tested but NOT yet wired into Router.ingest().
+Phase 1 will add: on adapter-failure -> EventQueue.enqueue(); periodic drain via
+the daily heartbeat or a maintenance endpoint. Until then, failed adapter writes
+are recorded in EventResult.notes and lost on process death.
+
 The router enqueues events whose downstream adapters all failed (typically:
 Graphiti slow / Gemini quota). A periodic replay job drains and re-tries.
 
