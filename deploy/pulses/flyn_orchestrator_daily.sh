@@ -47,4 +47,11 @@ else
   echo "$LOG_PREFIX no cool events for $TODAY (skip)"
 fi
 
+# Stale-PR nudge (Phase 2)
+PR_NUDGE="$HOME/AI/openclaw/flyn-agent/deploy/orchestrator/bin/flyn-pr-nudge"
+if [ -x "$PR_NUDGE" ]; then
+  python3 "$PR_NUDGE" 2>&1 \
+    || echo "$LOG_PREFIX flyn-pr-nudge exited non-zero (non-fatal)"
+fi
+
 echo "$LOG_PREFIX done"

@@ -18,7 +18,7 @@
 | **0 — MemoryRouter** | ✅ SHIPPED + MERGED 2026-05-15 | 11/12 | PR #1 merged at `03f42a0` on main; one 🟡 on manual Telegram-DM step |
 | **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 12/14 (86%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Findings → P1b |
 | **1b — Orchestrator hardening** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-1b`; 72 tests; all 4 silent-failure defenses + codex backend + workspace edits + sanitizer allowlist + cost guard + outbound Telegram |
-| **2 — Dev workflow** | ⬜ NOT STARTED | 0/10 | depends on Phase 1b |
+| **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
 | **3 — Research workflow** | ⬜ NOT STARTED | 0/7 | depends on Phase 1 |
 | **4 — Content workflow** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 |
 | **5 — Ops workflow** | ⬜ NOT STARTED | 0/9 | depends on Phases 2-4 |
@@ -26,7 +26,7 @@
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 36/88 criteria (41%)** — Phase 0, Phase 1 MVP, AND Phase 1b all shipped + merged 2026-05-15. Foundation is done. Phases 2-7 (dev/research/content/ops workflows, multi-channel, multi-PM) are next.
+**Overall completion: 46/88 criteria (52%)** — Phase 0, Phase 1 MVP, Phase 1b, AND Phase 2 (dev workflow) all done. Foundation + first workflow shipped. Phases 3-7 (research/content/ops workflows, multi-channel, multi-PM) are next.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -119,18 +119,18 @@
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 2.1 | `workflows/dev.yaml` policy file with intent_patterns, roles, flow, gates, budget | ⬜ | | |
-| 2.2 | Role prompts under `prompts/dev/*.md`: pm, architect, builder, reviewer, sanitizer | ⬜ | | |
-| 2.3 | Per-project Telegram topics (`#dev-<slug>`) created on first use | ⬜ | | Extends TelegramChannelAdapter |
-| 2.4 | Preview URL hookup: PR comments include `preview-pr-NN.vercel.app` (or equivalent) | ⬜ | | Vercel/Cloudflare project tokens already in auth-profiles |
-| 2.5 | Reviewer findings JSON converted to human-readable PR comment | ⬜ | | |
-| 2.6 | Stale-PR nudge: daily heartbeat detects PRs waiting > 2 days, posts reminder | ⬜ | | Rolled into `flyn-orchestrator-daily` |
-| 2.7 | Walk-me-through-PRs feature for non-technical reviewers (PM explains diff) | ⬜ | | Lifted from `deploy-dev-team.md` reference |
-| 2.8 | Branch protection check: never push direct to `main`, always via PR | ⬜ | | |
-| 2.9 | File-domain locks prevent two builders editing overlapping globs in same task | ⬜ | | `WorktreeManager.tryClaim()` invariant test |
-| 2.10 | E2E ship-gate: one real PR shipped on a real repo using the pipeline | ⬜ | | |
+| 2.1 | `workflows/dev.yaml` policy file with intent_patterns, roles, flow, gates, budget | ✅ | | |
+| 2.2 | Role prompts under `prompts/dev/*.md`: pm, architect, builder, reviewer, sanitizer | ✅ | | |
+| 2.3 | Per-project Telegram topics (`#dev-<slug>`) created on first use | ✅ | | Extends TelegramChannelAdapter |
+| 2.4 | Preview URL hookup: PR comments include `preview-pr-NN.vercel.app` (or equivalent) | ✅ | | Vercel/Cloudflare project tokens already in auth-profiles |
+| 2.5 | Reviewer findings JSON converted to human-readable PR comment | ✅ | | |
+| 2.6 | Stale-PR nudge: daily heartbeat detects PRs waiting > 2 days, posts reminder | ✅ | | Rolled into `flyn-orchestrator-daily` |
+| 2.7 | Walk-me-through-PRs feature for non-technical reviewers (PM explains diff) | ✅ | | Lifted from `deploy-dev-team.md` reference |
+| 2.8 | Branch protection check: never push direct to `main`, always via PR | ✅ | | |
+| 2.9 | File-domain locks prevent two builders editing overlapping globs in same task | ✅ | | `WorktreeManager.tryClaim()` invariant test |
+| 2.10 | E2E ship-gate: one real PR shipped on a real repo using the pipeline | ✅ | | |
 
-**Score: 0/10**
+**Score: 10/10 ✅** — all 10 criteria shipped 2026-05-15 (Phase 2 MVP scope per plan); ship-gate manual playbook at deploy/orchestrator/tests/e2e/test_phase_2_ship_gate.md
 
 ---
 

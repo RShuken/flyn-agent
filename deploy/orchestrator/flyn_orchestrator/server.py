@@ -13,7 +13,8 @@ from .worktree import WorktreeManager
 from .dispatcher import WorkerDispatcher
 from .memory import MemoryEmitter
 from .router import TaskRouter
-from .types import InboundTaskRequest, TaskRecord, TaskState
+from .types import ApprovalDecision, InboundTaskRequest, TaskRecord, TaskState
+from .workflows import load_workflows_dir
 from .adapters.channels.telegram import TelegramChannelAdapter
 from .adapters.notify.stdout import StdoutNotifyAdapter
 from .adapters.pm.linear import LinearPMAdapter
@@ -59,6 +60,10 @@ def build_app(
     builder_prompt = Path(__file__).parent / "prompts" / "builder.md"
     repo_fn = repo_path_for_workflow or _default_repo_for_workflow
 
+    # Load workflow policies from disk
+    workflows_dir = Path(__file__).parent / "workflows"
+    workflows = load_workflows_dir(workflows_dir)
+
     # Adapter registries (built before router so we can pass channels through)
     channels = ChannelRegistry()
     channels.register(TelegramChannelAdapter())
@@ -73,6 +78,7 @@ def build_app(
         builder_prompt_path=builder_prompt,
         reviewer_invoker=reviewer_invoker,
         channel_registry=channels,  # NEW: wires outbound notify
+        workflows=workflows,
     )
 
     app = FastAPI(title="flyn-orchestrator", version="0.1.0")
@@ -100,6 +106,17 @@ def build_app(
     def run_task_route(task_id: str) -> TaskRecord:
         """Explicit run trigger — used by tests; production also routes through this."""
         return task_router.run_task(task_id)
+
+    @app.post("/api/tasks/{task_id}/approve")
+    def approve(task_id: str, decision: ApprovalDecision) -> TaskRecord:
+        """Accept or reject a task pending human approval."""
+        t = store.get_task(task_id)
+        if not t:
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        try:
+            return task_router.handle_approval(task_id, decision)
+        except NotImplementedError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel(task_id: str) -> dict[str, Any]:

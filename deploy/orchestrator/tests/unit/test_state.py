@@ -55,3 +55,12 @@ def test_next_task_id_increments(store: StateStore):
     b = store.next_task_id()
     assert a.startswith("T-") and b.startswith("T-")
     assert int(b[2:]) == int(a[2:]) + 1
+
+
+def test_update_task_payload_merges(store: StateStore):
+    t = _task("T-1", "dev")
+    t = TaskRecord(**{**t.model_dump(), "raw_payload": {"a": 1}})
+    store.insert_task(t)
+    store.update_task_payload("T-1", {"b": 2, "c": 3})
+    got = store.get_task("T-1")
+    assert got.raw_payload == {"a": 1, "b": 2, "c": 3}

@@ -114,6 +114,18 @@ class StateStore:
             except sqlite3.IntegrityError:
                 return False
 
+    def update_task_payload(self, task_id: str, fields: dict[str, Any]) -> None:
+        """Merge fields into the task's raw_payload column."""
+        task = self.get_task(task_id)
+        if not task:
+            return
+        payload = dict(task.raw_payload or {})
+        payload.update(fields)
+        import json as _json
+        with self._connect() as conn:
+            conn.execute("UPDATE tasks SET raw_payload = ? WHERE task_id = ?",
+                         (_json.dumps(payload), task_id))
+
     def list_events(self, task_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
