@@ -74,11 +74,28 @@ class TaskRouter:
         self._store.insert_task(record)
         return task_id
 
+    # States that indicate the task has already been fully processed.
+    _TERMINAL_STATES = frozenset({
+        TaskState.DELIVERABLE_READY,
+        TaskState.COMPLETED,
+        TaskState.CANCELLED,
+        TaskState.FAILED,
+        TaskState.TIMED_OUT,
+        TaskState.COST_PAUSED,
+    })
+
     def run_task(self, task_id: str) -> TaskRecord:
-        """Synchronous happy-path flow. Returns final TaskRecord or raises."""
+        """Synchronous happy-path flow. Returns final TaskRecord or raises.
+
+        Idempotent: if the task is already in a terminal state, returns it immediately.
+        """
         t = self._store.get_task(task_id)
         if t is None:
             raise ValueError(f"task {task_id!r} not found")
+
+        # Early-return if already in a terminal/complete state (handles re-runs from BackgroundTasks).
+        if t.state in self._TERMINAL_STATES:
+            return t
 
         cost_tracker = CostTracker(budget_usd=t.budget_usd)
         current_state = t.state
