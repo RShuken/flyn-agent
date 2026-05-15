@@ -16,7 +16,7 @@
 | Phase | Status | Score | Ship-gate |
 |---|---|---|---|
 | **0 — MemoryRouter** | ✅ SHIPPED + MERGED 2026-05-15 | 11/12 | PR #1 merged at `03f42a0` on main; one 🟡 on manual Telegram-DM step |
-| **1 — Orchestrator foundation (MVP)** | 🟡 MVP SHIPPED, AWAITING E2E | 11/14 (78%) | branch `feat/orchestrator-foundation-phase-1`, service live on :8300, awaiting manual ship-gate playbook |
+| **1 — Orchestrator foundation (MVP)** | ✅ E2E PASSED, AWAITING PR MERGE | 12/14 (86%) | branch `feat/orchestrator-foundation-phase-1`, service live on :8300, **real claude -p ship-gate passed 2026-05-15 03:29 — `phase1-marker.txt` shipped, reviewer JSON clean, 10 Graphiti episodes** |
 | **2 — Dev workflow** | ⬜ NOT STARTED | 0/10 | depends on Phase 1 |
 | **3 — Research workflow** | ⬜ NOT STARTED | 0/7 | depends on Phase 1 |
 | **4 — Content workflow** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 |
@@ -25,7 +25,7 @@
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 26/79 criteria (33%)** — Phase 0 shipped + merged; Phase 1 MVP shipped overnight 2026-05-15, awaiting manual e2e + Phase 1b enrichment + Phases 2-7.
+**Overall completion: 27/79 criteria (34%)** — Phase 0 shipped + merged; Phase 1 MVP **functionally proven on 4C overnight 2026-05-15** with real claude -p worker + fresh-context reviewer; awaiting PR merge + Phase 1b enrichment + Phases 2-7.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
