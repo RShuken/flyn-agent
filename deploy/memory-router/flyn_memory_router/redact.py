@@ -39,16 +39,21 @@ def redact(s: Optional[str]) -> str:
     return out
 
 
+def _redact_value(v):
+    """Recursively redact a single value of arbitrary type."""
+    if isinstance(v, str):
+        return redact(v)
+    if isinstance(v, dict):
+        return {k: _redact_value(vv) for k, vv in v.items()}
+    if isinstance(v, list):
+        return [_redact_value(x) for x in v]
+    if isinstance(v, tuple):
+        return tuple(_redact_value(x) for x in v)
+    return v
+
+
 def redact_dict(d: dict) -> dict:
-    """Recursively redact all string values in a dict. Returns a new dict."""
-    result: dict = {}
-    for k, v in d.items():
-        if isinstance(v, str):
-            result[k] = redact(v)
-        elif isinstance(v, dict):
-            result[k] = redact_dict(v)
-        elif isinstance(v, list):
-            result[k] = [redact(x) if isinstance(x, str) else x for x in v]
-        else:
-            result[k] = v
-    return result
+    """Recursively redact all string values in a dict (including those inside
+    nested dicts, lists, and tuples). Non-string scalars pass through unchanged.
+    Returns a new dict; input is not mutated."""
+    return {k: _redact_value(v) for k, v in d.items()}
