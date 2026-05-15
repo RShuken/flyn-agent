@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>           <string>ai.flyn.orchestrator</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{HOME}}/.flyn/orchestrator/.venv/bin/uvicorn</string>
+      <string>flyn_orchestrator.server:build_app</string>
+      <string>--factory</string>
+      <string>--host</string>  <string>127.0.0.1</string>
+      <string>--port</string>  <string>8300</string>
+    </array>
+    <key>WorkingDirectory</key><string>{{HOME}}/.flyn/orchestrator</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>FLYN_ORCHESTRATOR_HOME</key>     <string>{{HOME}}/.flyn/orchestrator</string>
+      <key>FLYN_WORKSPACE</key>             <string>{{HOME}}/.openclaw/workspace</string>
+      <key>FLYN_MEMORY_ROUTER_URL</key>     <string>http://localhost:8400</string>
+      <key>FLYN_ORCHESTRATOR_PORT</key>     <string>8300</string>
+      <key>FLYN_DEFAULT_BACKEND</key>       <string>claude-p</string>
+      <key>FLYN_DEFAULT_TEST_REPO</key>     <string>{{HOME}}/.flyn/orchestrator/test-repo</string>
+      <key>PATH</key>                       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>       <true/>
+    <key>KeepAlive</key>       <true/>
+    <key>StandardOutPath</key> <string>/tmp/flyn-orchestrator.log</string>
+    <key>StandardErrorPath</key><string>/tmp/flyn-orchestrator.log</string>
+  </dict>
+</plist>
