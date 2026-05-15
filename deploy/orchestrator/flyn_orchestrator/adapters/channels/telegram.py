@@ -73,7 +73,7 @@ class TelegramChannelAdapter:
             sender_role=_classify_sender(int(chat_id)),
             intent=text,
             external_message_id=f"tg-{chat_id}-{message_id}",
-            raw_payload={"chat_id": chat_id, "message_id": message_id},
+            raw_payload={"channel": "telegram", "chat_id": chat_id, "message_id": message_id},
         )
 
     def send(self, channel: str, body: str, attachments: Optional[list] = None) -> None:
