@@ -10,7 +10,7 @@
 **Scope:** Flyn as PM agent — **OpenLiteracy ONLY** for now. Cora is on the roadmap but not actively tracked.
 **Operator:** Ryan Shuken (Telegram chat_id `7191564227`)
 **Partner:** Beth Kukla, co-founder + COO Cora; PM for OL (chat_id `7434192034`)
-**Tech lead:** Eric Schneider — pending Telegram (`@flyn_4c_bot` /start required)
+**CEO:** Eric Schneider — pending Telegram (`@flyn_4c_bot` /start required)
 
 ---
 
@@ -55,6 +55,9 @@ sqlite3 ~/.openclaw/data/ol-pm.db "SELECT COUNT(*) AS synced, (SELECT COUNT(*) F
 # 9. Meeting pipeline
 sqlite3 ~/.openclaw/data/flyn-meetings.db "SELECT status, COUNT(*) FROM meetings GROUP BY status" 2>/dev/null || echo "(no meetings DB yet)"
 launchctl list | grep meeting-categorize
+
+# 10. Memory router (Phase 0 of orchestrator)
+curl -sS http://127.0.0.1:8400/api/health | python3 -m json.tool
 ```
 
 Expected results: all green, **~73 of 124** Linear issues synced (see "Known issues" below).
@@ -176,6 +179,7 @@ The readiness rubric Dimension 4 (Code + CI/CD) is at 3/5 because there are no a
 - Nightly backup pulse: daily 02:17 tarball
 - DR run-book: `flyn-agent/DISASTER-RECOVERY.md` (untested)
 - Readiness rubric at 3.4/5 with concrete top-10 gap list
+- Memory router: Phase 0 of orchestrator (port 8400), accepts /api/memory/ingest, classifies importance + fans out to 5 tiers; daily heartbeat runs decay + cool→warm rollup
 
 ---
 
