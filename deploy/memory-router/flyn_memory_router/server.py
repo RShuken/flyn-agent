@@ -35,6 +35,10 @@ class _PinBody(BaseModel):
     sender_role: Literal["owner", "teammate", "other"]
 
 
+class _MaintBody(BaseModel):
+    sender_role: Literal["owner", "teammate", "other"]
+
+
 def build_app(http_client: Any | None = None) -> FastAPI:
     cfg = Config.from_env()
     cfg.home.mkdir(parents=True, exist_ok=True)
@@ -94,5 +98,12 @@ def build_app(http_client: Any | None = None) -> FastAPI:
         except PermissionError as e:
             raise HTTPException(status_code=403, detail=str(e))
         return {"ok": True, "existed": existed}
+
+    @app.post("/api/memory/maintenance/decay")
+    def decay_route(req: _MaintBody) -> dict[str, Any]:
+        if req.sender_role != "owner":
+            raise HTTPException(status_code=403, detail="owner only")
+        removed = hot.decay()
+        return {"ok": True, "removed": removed}
 
     return app

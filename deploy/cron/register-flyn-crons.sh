@@ -178,3 +178,11 @@ launchctl list | awk '/ai\.flyn\.(pulse|gemma4-warm-at-boot)/{print "  " $3}'
 
 echo
 ok "registration complete. Logs under ${LOG_DIR}/cron-<label>.{log,err}"
+
+# Flyn orchestrator daily heartbeat (Phase 0: memory router decay + rollup)
+openclaw cron add \
+  --name flyn-orchestrator-daily \
+  --schedule "0 3 * * *" \
+  --command "$HOME/AI/openclaw/flyn-agent/deploy/pulses/flyn_orchestrator_daily.sh" \
+  --on-host 2>/dev/null \
+  || echo "(flyn-orchestrator-daily already registered)"

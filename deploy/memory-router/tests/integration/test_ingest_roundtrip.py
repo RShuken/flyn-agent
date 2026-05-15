@@ -77,3 +77,13 @@ def test_unpin_owner_only(client):
     assert r.status_code == 403
     r2 = client.delete("/api/memory/pin/P-2?sender_role=owner")
     assert r2.status_code == 200
+
+
+def test_decay_owner_only(client):
+    r = client.post("/api/memory/maintenance/decay",
+                    json={"sender_role": "teammate"})
+    assert r.status_code == 403
+    r2 = client.post("/api/memory/maintenance/decay",
+                     json={"sender_role": "owner"})
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is True
