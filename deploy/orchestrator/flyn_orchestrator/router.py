@@ -41,6 +41,9 @@ from .types import (
     WorkerSpec,
 )
 from .worktree import WorktreeManager
+from . import ops as _ops
+from . import audit as _audit
+from .risk_tier import load_rules
 
 
 def _format_pr_body(task: TaskRecord, plan: dict, review: ReviewFindings) -> str:
@@ -130,6 +133,7 @@ class TaskRouter:
         TaskState.DELIVERABLE_READY,
         TaskState.COMPLETED,
         TaskState.CANCELLED,
+        TaskState.REJECTED,
         TaskState.FAILED,
         TaskState.TIMED_OUT,
         TaskState.COST_PAUSED,
@@ -178,6 +182,11 @@ class TaskRouter:
             # Content workflow branches here — sequential pipeline, never auto-publishes.
             if t.workflow == "content":
                 self._run_content_phase(t)
+                return self._store.get_task(task_id)
+
+            # Ops workflow branches here — risk-tier gated pipeline with audit log.
+            if t.workflow == "ops":
+                self._run_ops_phase(t)
                 return self._store.get_task(task_id)
 
             # Synthesised plan object (Phase 2 MVP — real PM invocation is Phase 2b)
@@ -717,6 +726,364 @@ class TaskRouter:
         )
 
     # ------------------------------------------------------------------
+    # Ops-workflow phase
+    # ------------------------------------------------------------------
+
+    _OPS_WORKFLOWS_DIR = Path(__file__).parent / "workflows"
+    _OPS_RISK_RULES_PATH = Path(__file__).parent / "workflows" / "ops" / "risk-rules.yaml"
+
+    # Which sender_roles count as "owner" for approval gating.
+    _OWNER_ROLES = frozenset({"owner"})
+    _TEAMMATE_OR_OWNER_ROLES = frozenset({"owner", "teammate"})
+
+    def _run_ops_phase(self, task: TaskRecord) -> None:
+        """Walk the full ops pipeline.
+
+        Steps:
+          DECOMPOSED → DISPATCHED  (PM specs the action)
+          DISPATCHED → RUNNING     (classify risk + dry-run)
+          RUNNING → AWAITING_OWNER_APPROVAL  (medium/high/critical tier)
+          RUNNING → DELIVERABLE_READY        (low tier auto-executes)
+
+        After execution (either auto or resumed from approval):
+          validate → DELIVERABLE_READY or AWAITING_OWNER_APPROVAL (validator concerns)
+        """
+        import json as _json
+
+        backend = self._dispatcher._registry.get("claude-p")
+        scratch = Path(self._wt_mgr._dir) / task.task_id
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        # 1. Spec (PM)
+        self._safe_transition(
+            task.task_id, TaskState.DECOMPOSED, TaskState.DISPATCHED,
+            actor="ops", reason="PM speccing ops action",
+        )
+        spec = _ops.spec_ops_action(
+            task.intent, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+        if spec is None or spec.title.startswith("("):
+            self._safe_transition(
+                task.task_id, TaskState.DISPATCHED, TaskState.FAILED,
+                actor="ops", reason="PM ops spec unparseable or ambiguous",
+            )
+            self._memory.emit(
+                source="orchestrator", event_type="task_failed",
+                subject=task.task_id, body="ops PM step failed",
+                dedup_key=f"orch-{task.task_id}-pm-fail", importance="warm",
+            )
+            return
+
+        # Persist OpsSpec to task state
+        self._store.update_task_payload(task.task_id, {
+            "ops_spec": {
+                "title": spec.title,
+                "rationale": spec.rationale,
+                "target": spec.target,
+                "action": spec.action,
+                "preconditions": spec.preconditions,
+                "postconditions": spec.postconditions,
+                "rollback": spec.rollback,
+                "dry_run_supported": spec.dry_run_supported,
+                "estimated_blast_radius": spec.estimated_blast_radius,
+                "external_calls": spec.external_calls,
+            }
+        })
+
+        # 2. Classify risk
+        self._safe_transition(
+            task.task_id, TaskState.DISPATCHED, TaskState.RUNNING,
+            actor="ops", reason="risk classify + dry-run",
+        )
+        rules = load_rules(self._OPS_RISK_RULES_PATH)
+        risk = _ops.classify_risk(
+            task.intent, spec,
+            rules=rules,
+            scratch_dir=scratch,
+            backend=backend,
+            task_id=task.task_id,
+        )
+        tier = risk.tier
+
+        # Persist risk assessment
+        self._store.update_task_payload(task.task_id, {
+            "risk_tier": tier,
+            "risk_reason": risk.reason,
+            "risk_upgraded_from_rule": risk.upgraded_from_rule,
+            "risk_rule_floor": risk.rule_floor,
+        })
+
+        # 3. Pre-snapshot
+        before_snap = _audit.snapshot_target(spec.target)
+        self._store.append_audit(
+            task_id=task.task_id,
+            actor="ops",
+            action="pre-snapshot",
+            target=spec.target,
+            before_hash=before_snap.hash_value or None,
+            after_hash=None,
+            payload={"tier": tier, "kind": before_snap.kind},
+        )
+
+        # 4. Dry-run
+        dry_result = _ops.dry_run_action(
+            spec, tier=tier, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+        self._store.append_audit(
+            task_id=task.task_id,
+            actor="ops",
+            action="dry-run",
+            target=spec.target,
+            before_hash=before_snap.hash_value or None,
+            after_hash=None,
+            payload={
+                "tier": tier,
+                "would_do": dry_result.would_do,
+                "concerns": dry_result.concerns,
+                "expected_blast_radius": dry_result.expected_blast_radius,
+            },
+        )
+
+        # 5. Tier-based gate
+        if tier == "low":
+            # Auto-approve: execute immediately
+            self._execute_ops_and_finalize(
+                task=task,
+                spec=spec,
+                tier=tier,
+                before_snap=before_snap,
+                scratch=scratch,
+                backend=backend,
+            )
+        else:
+            # medium / high / critical — block for owner approval
+            approval_context: dict = {
+                "ops_spec_title": spec.title,
+                "risk_tier": tier,
+                "risk_reason": risk.reason,
+                "dry_run_would_do": dry_result.would_do,
+                "dry_run_concerns": dry_result.concerns,
+            }
+            if tier == "critical":
+                approval_context["requires_rationale"] = True
+
+            self._store.update_task_payload(task.task_id, {
+                "approval_context": approval_context,
+            })
+            self._safe_transition(
+                task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
+                actor="ops",
+                reason=f"risk tier={tier}; awaiting owner approval",
+            )
+            self._memory.emit(
+                source="orchestrator", event_type="ops_awaiting_approval",
+                subject=task.task_id,
+                body=f"Ops task {task.task_id} blocked at tier={tier}; awaiting owner approval",
+                dedup_key=f"orch-{task.task_id}-awaiting", importance="warm",
+            )
+
+    def _execute_ops_and_finalize(
+        self,
+        *,
+        task: TaskRecord,
+        spec: "_ops.OpsSpec",
+        tier: str,
+        before_snap: "_audit.SnapshotBundle",
+        scratch: Path,
+        backend,
+    ) -> None:
+        """Execute the ops action, post-snapshot, validate, and transition to final state.
+
+        Called either directly (low tier) or after owner approval (medium/high/critical).
+        """
+        # Execute
+        exec_result = _ops.execute_action(
+            spec, tier=tier, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+
+        # Post-snapshot
+        after_snap = _audit.snapshot_target(spec.target)
+        changed = _audit.verify_target_changed(before_snap, after_snap)
+        self._store.append_audit(
+            task_id=task.task_id,
+            actor="ops",
+            action="post-snapshot",
+            target=spec.target,
+            before_hash=before_snap.hash_value or None,
+            after_hash=after_snap.hash_value or None,
+            payload={
+                "tier": tier,
+                "changed": changed,
+                "actions_taken": exec_result.actions_taken,
+                "errors": exec_result.errors,
+            },
+        )
+
+        # Validate
+        val_result = _ops.validate_action(
+            spec, before_snap, after_snap,
+            scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+        self._store.append_audit(
+            task_id=task.task_id,
+            actor="ops",
+            action="validate",
+            target=spec.target,
+            before_hash=before_snap.hash_value or None,
+            after_hash=after_snap.hash_value or None,
+            payload={
+                "passed": val_result.passed,
+                "summary": val_result.summary,
+                "tier": tier,
+            },
+        )
+
+        if val_result.passed:
+            self._safe_transition(
+                task.task_id, TaskState.RUNNING, TaskState.DELIVERABLE_READY,
+                actor="ops", reason=f"validator passed; tier={tier}",
+            )
+            self._memory.emit(
+                source="orchestrator", event_type="ops_complete",
+                subject=task.task_id,
+                body=f"Ops task {task.task_id} completed successfully; tier={tier}",
+                dedup_key=f"orch-{task.task_id}-ops-complete", importance="warm",
+            )
+        else:
+            # Validator concerns — block for owner review even if low tier auto-executed
+            self._store.update_task_payload(task.task_id, {
+                "validator_concerns": val_result.summary,
+                "validator_postcondition_results": [
+                    {
+                        "postcondition": p.postcondition,
+                        "verified": p.verified,
+                        "evidence": p.evidence,
+                        "severity_if_failed": p.severity_if_failed,
+                    }
+                    for p in val_result.postcondition_results
+                ],
+            })
+            self._safe_transition(
+                task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
+                actor="validator",
+                reason=f"validator FAIL; tier={tier}; concerns: {val_result.summary[:200]}",
+            )
+            self._memory.emit(
+                source="orchestrator", event_type="ops_validator_fail",
+                subject=task.task_id,
+                body=f"Validator failed for {task.task_id}: {val_result.summary}",
+                dedup_key=f"orch-{task.task_id}-val-fail", importance="warm",
+            )
+
+    def _handle_ops_approval(
+        self,
+        task: TaskRecord,
+        approver: str,
+        decision: str,
+        *,
+        approver_role: str = "owner",
+        rationale: Optional[str] = None,
+    ) -> TaskRecord:
+        """Handle human approval for an ops task at AWAITING_OWNER_APPROVAL.
+
+        decision: "approve" | "reject"
+        approver_role: "owner" | "teammate" (caller must supply from auth context)
+
+        Auth rules:
+          - critical tier: owner only
+          - medium/high tier: owner or teammate
+
+        Critical tier additionally requires a non-empty rationale string.
+        """
+        payload = task.raw_payload or {}
+        tier = payload.get("risk_tier", "medium")
+
+        # Auth check
+        if tier == "critical":
+            if approver_role not in self._OWNER_ROLES:
+                raise PermissionError(
+                    f"critical-tier ops task {task.task_id!r} requires owner approval; "
+                    f"approver {approver!r} has role {approver_role!r}"
+                )
+            if decision == "approve" and not rationale:
+                raise ValueError(
+                    f"critical-tier approval for {task.task_id!r} requires an explicit rationale"
+                )
+        else:
+            # medium or high — owner or teammate
+            if approver_role not in self._TEAMMATE_OR_OWNER_ROLES:
+                raise PermissionError(
+                    f"ops task {task.task_id!r} (tier={tier}) requires owner or teammate approval; "
+                    f"approver {approver!r} has role {approver_role!r}"
+                )
+
+        if decision == "reject":
+            self._store.append_audit(
+                task_id=task.task_id,
+                actor=approver,
+                action="reject",
+                target=payload.get("ops_spec", {}).get("target", ""),
+                before_hash=None,
+                after_hash=None,
+                payload={"tier": tier, "rationale": rationale or ""},
+            )
+            self._safe_transition(
+                task.task_id, TaskState.AWAITING_OWNER_APPROVAL, TaskState.REJECTED,
+                actor=approver, reason=f"ops rejected by {approver}; tier={tier}",
+            )
+            return self._store.get_task(task.task_id)
+
+        # Approved — resume execute phase
+        # Rebuild OpsSpec from stored payload
+        spec_data = payload.get("ops_spec") or {}
+        spec = _ops.OpsSpec(
+            title=spec_data.get("title", ""),
+            rationale=spec_data.get("rationale", ""),
+            target=spec_data.get("target", ""),
+            action=spec_data.get("action", ""),
+            preconditions=list(spec_data.get("preconditions") or []),
+            postconditions=list(spec_data.get("postconditions") or []),
+            rollback=spec_data.get("rollback", ""),
+            dry_run_supported=bool(spec_data.get("dry_run_supported", False)),
+            estimated_blast_radius=spec_data.get("estimated_blast_radius", ""),
+            external_calls=list(spec_data.get("external_calls") or []),
+        )
+
+        # Re-take before snapshot (task was paused; re-snapshot current state)
+        before_snap = _audit.snapshot_target(spec.target)
+
+        self._store.append_audit(
+            task_id=task.task_id,
+            actor=approver,
+            action="approved",
+            target=spec.target,
+            before_hash=before_snap.hash_value or None,
+            after_hash=None,
+            payload={"tier": tier, "rationale": rationale or ""},
+        )
+
+        # Transition back to RUNNING for execution
+        self._safe_transition(
+            task.task_id, TaskState.AWAITING_OWNER_APPROVAL, TaskState.RUNNING,
+            actor=approver, reason=f"approved by {approver}; tier={tier}",
+        )
+
+        backend = self._dispatcher._registry.get("claude-p")
+        scratch = Path(self._wt_mgr._dir) / task.task_id
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        self._execute_ops_and_finalize(
+            task=task,
+            spec=spec,
+            tier=tier,
+            before_snap=before_snap,
+            scratch=scratch,
+            backend=backend,
+        )
+
+        return self._store.get_task(task.task_id)
+
+    # ------------------------------------------------------------------
     # Approval handling
     # ------------------------------------------------------------------
 
@@ -734,6 +1101,25 @@ class TaskRouter:
             raise ValueError(f"task not found: {task_id}")
 
         # Content workflow approval: send draft to destination channel or cancel.
+        # Ops workflow: AWAITING_OWNER_APPROVAL
+        if task.state == TaskState.AWAITING_OWNER_APPROVAL and task.workflow == "ops":
+            payload = task.raw_payload or {}
+            tier = payload.get("risk_tier", "medium")
+            # Map ApprovalDecision to _handle_ops_approval params
+            decision_str = "approve" if decision.approved else "reject"
+            # Infer approver_role from sender_role on the task (original requester role
+            # is the lower bound; the API caller may supply a higher-privilege approver).
+            # For safety we default to "teammate" unless the ApprovalDecision carries the
+            # approver's role in the gate field (gate encodes the required role tier).
+            approver_role = "owner" if decision.gate in ("owner", "critical") else "teammate"
+            return self._handle_ops_approval(
+                task=task,
+                approver=decision.approver,
+                decision=decision_str,
+                approver_role=approver_role,
+                rationale=decision.reason,
+            )
+
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "content":
             if not decision.approved:
                 self._safe_transition(
