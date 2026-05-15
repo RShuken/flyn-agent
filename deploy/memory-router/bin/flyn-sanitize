@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+# deploy/memory-router/bin/flyn-sanitize
+"""Static-pattern scanner for borrowed ClawHub assets (and any imported script).
+
+Usage:
+    flyn-sanitize <path>
+
+Exit codes:
+    0  no findings
+    1  findings present (printed to stdout); review before installing
+    2  bad usage / path error
+"""
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("curl|wget piped to shell",   re.compile(r"(curl|wget)\s[^|;\n]*\|\s*(sh|bash)")),
+    ("base64 piped to shell",       re.compile(r"base64\s+-d.*\|\s*(sh|bash)")),
+    ("eval $(...)",                 re.compile(r"eval\s+\$\(")),
+    ("--dangerously-skip-perms",    re.compile(r"--dangerously-skip-permissions")),
+    ("gh secret",                   re.compile(r"\bgh\s+secret\b")),
+    ("~/.ssh path",                 re.compile(r"~/\.ssh/")),
+    ("~/.aws path",                 re.compile(r"~/\.aws/")),
+    ("~/.openclaw/agents path",     re.compile(r"~/\.openclaw/agents")),
+    ("env-var dump to URL",         re.compile(r"env\b.*\|.*(curl|wget)")),
+    ("printenv to URL",             re.compile(r"printenv.*\|.*(curl|wget)")),
+    ("runtime fetch+exec",          re.compile(r"(curl|wget)\s[^|;\n]*-o\s+\S+\s*;\s*(sh|bash)\s+\S+")),
+]
+
+DOMAIN_ALLOW = {"localhost", "127.0.0.1", "::1"}
+
+
+def scan_file(path: Path) -> list[tuple[str, int, str]]:
+    findings: list[tuple[str, int, str]] = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return [("unreadable", 0, str(e))]
+    for i, line in enumerate(text.splitlines(), 1):
+        for label, pat in PATTERNS:
+            if pat.search(line):
+                findings.append((label, i, line.strip()[:200]))
+        for m in re.finditer(r"https?://([^\s/'\"`)]+)", line):
+            host = m.group(1).split(":")[0]
+            if host not in DOMAIN_ALLOW and not host.endswith(".internal"):
+                findings.append((f"non-allowlisted-url:{host}", i, line.strip()[:200]))
+    return findings
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print("usage: flyn-sanitize <path>", file=sys.stderr)
+        return 2
+    root = Path(argv[1])
+    if not root.exists():
+        print(f"not found: {root}", file=sys.stderr)
+        return 2
+    files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file()]
+    any_findings = False
+    for f in files:
+        if f.suffix in {".md", ".txt", ".sh", ".py", ".ts", ".js", ".yaml", ".yml", ".json", ""}:
+            findings = scan_file(f)
+            if findings:
+                any_findings = True
+                print(f"\n=== {f.relative_to(root) if root.is_dir() else f.name} ===")
+                for label, line_no, snippet in findings:
+                    print(f"  L{line_no}  [{label}]  {snippet}")
+    if any_findings:
+        print("\nfindings present — review before installing\n", file=sys.stderr)
+        return 1
+    print("clean — no findings")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
