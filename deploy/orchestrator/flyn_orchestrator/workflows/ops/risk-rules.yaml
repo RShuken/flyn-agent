@@ -1,0 +1,57 @@
+# Declarative risk-tier classifier rules.
+# Adding a rule = editing YAML, never code. The risk_tier.py module loads
+# this file and returns the highest-matching tier.
+#
+# Rule shape:
+#   pattern: regex against the intent text (case-insensitive)
+#   target: regex against any explicit target mentioned in the spec (optional)
+#   tier: low | medium | high | critical
+#   reason: short string for audit log
+#
+# Highest-matching tier wins. If no rule matches, default is "medium" (one-way
+# escalation — the orchestrator never downgrades to low without an explicit rule).
+default_tier: medium
+rules:
+  # --- LOW ---
+  - pattern: "test.*token|sandbox|dry.run|local"
+    tier: low
+    reason: "operates only on test/sandbox/local resources"
+  - pattern: "(rotate|refresh).*test"
+    tier: low
+    reason: "rotation of test credentials"
+
+  # --- MEDIUM ---
+  - pattern: "(rotate|refresh|change).*api.?key"
+    tier: medium
+    reason: "credential rotation — service may briefly fail"
+  - pattern: "(deploy|push).*staging"
+    tier: medium
+    reason: "staging deployment"
+  - pattern: "(backup|snapshot|archive).*[^/]+"
+    tier: medium
+    reason: "data export — read-only by default but storage cost"
+
+  # --- HIGH ---
+  - pattern: "(deploy|push).*production|live|prod"
+    tier: high
+    reason: "production deployment"
+  - pattern: "(rotate|refresh).*(stripe|anthropic|openai|github|linear)"
+    tier: high
+    reason: "rotation of critical third-party credential"
+  - pattern: "schema|migration|alter.table|drop.table"
+    tier: high
+    reason: "database schema change"
+
+  # --- CRITICAL ---
+  - pattern: "delete|wipe|truncate|drop.*database|rm.*-rf"
+    tier: critical
+    reason: "destructive operation"
+  - pattern: "production.*secrets?"
+    tier: critical
+    reason: "touches production secrets"
+  - pattern: "(disable|kill).*auth|2fa|mfa"
+    tier: critical
+    reason: "weakens an auth boundary"
+  - pattern: "force.push.*main|master"
+    tier: critical
+    reason: "force-push to default branch — can erase history"
