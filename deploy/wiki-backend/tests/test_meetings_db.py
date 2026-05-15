@@ -23,6 +23,9 @@ import meetings_db as mdb  # noqa: E402
 def reset_db():
     """Reset the meetings_db module state + DB file before each test
     so tests don't depend on order."""
+    # Also reset DB_PATH in case another test module set FLYN_MEETINGS_DB
+    # to a different temp file before this module was imported.
+    mdb.DB_PATH = Path(_tmpdb.name)
     Path(_tmpdb.name).unlink(missing_ok=True)
     mdb._initialized = False
     yield

@@ -32,7 +32,9 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+import meetings_db
 from db import audit, get_conn, init_db
+from krisp_webhook import router as krisp_router
 from models import (
     AnswerQuestion,
     AuditEntry,
@@ -84,9 +86,13 @@ app.add_middleware(
 )
 
 
+app.include_router(krisp_router)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    meetings_db.init_db()
 
 
 # -------------------- auth --------------------
