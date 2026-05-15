@@ -25,7 +25,10 @@ When a project-relevant transcript is found:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -111,7 +114,39 @@ def ingest_to_graphiti(cfg: ProjectConfig, meeting: dict, sha: str) -> None:
         f"{', '.join(meeting['attendees'])}. "
         f"Transcript filed at commit {sha[:8]} in the planning repo."
     )
-    graphiti_episode(body=body, name=f"{cfg.slug}-meeting-{meeting['date']}-{meeting['short_slug']}")
+    episode_name = f"{cfg.slug}-meeting-{meeting['date']}-{meeting['short_slug']}"
+
+    # New: route through the MemoryRouter (port 8400).
+    # Wrapped in try/except so a router outage does not crash the Fathom flow.
+    try:
+        _router_payload = json.dumps({
+            "source": "fathom",
+            "event_type": "meeting_summary",
+            "subject": f"meeting-{meeting.get('short_slug', episode_name)}",
+            "body": body,
+            "dedup_key": f"fathom-{cfg.slug}-{meeting['date']}-{meeting.get('short_slug', '')}",
+            "raw_payload": {
+                "date": meeting["date"],
+                "short_slug": meeting.get("short_slug"),
+                "project": cfg.slug,
+            },
+        }).encode()
+        _router_req = urllib.request.Request(
+            "http://127.0.0.1:8400/api/memory/ingest",
+            data=_router_payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(_router_req, timeout=10)
+    except Exception:  # noqa: BLE001
+        # Router is down or not yet deployed — fall through to legacy path.
+        pass
+
+    # Legacy: direct Graphiti POST. Gated by FLYN_MEMORY_ROUTER_PASSTHROUGH
+    # (default "true") so the pipeline keeps writing to Graphiti during
+    # migration. Set to "false" once the router is the sole source of truth.
+    if os.environ.get("FLYN_MEMORY_ROUTER_PASSTHROUGH", "true").lower() == "true":
+        graphiti_episode(body=body, name=episode_name)
 
 
 def notify_operators(cfg: ProjectConfig, meeting: dict, sha: str) -> None:
