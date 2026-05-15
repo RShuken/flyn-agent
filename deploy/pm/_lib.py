@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -247,3 +249,100 @@ def git_commit_and_push(repo_path: Path, paths: Iterable[str], message: str) -> 
         check=True,
     )
     return sha
+
+
+# --- Meeting routing ------------------------------------------------------
+
+
+def _slugify(text: str, max_len: int = 40) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (text or "untitled").lower()).strip("-")
+    return s[:max_len] or "untitled"
+
+
+def _meeting_date(started_at: str | None) -> str:
+    if not started_at:
+        return datetime.utcnow().strftime("%Y-%m-%d")
+    try:
+        return started_at[:10]  # ISO 8601 prefix
+    except Exception:
+        return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def route_meeting_to_project(meeting: dict, cfg: ProjectConfig) -> dict:
+    """Write meeting content into a project repo, commit, push, ingest, ping.
+
+    `meeting` is a dict matching the meetings table columns (meeting_id,
+    title, started_at, attendees, transcript_text, notes_text, etc.).
+    Returns {"commit_sha": str, "target_rel": str}.
+    """
+    date = _meeting_date(meeting.get("started_at"))
+    slug = _slugify(meeting.get("title") or meeting.get("meeting_id") or "")
+    target_rel = f"docs/00-source/meetings/{date}_{slug}/transcript.md"
+    target = cfg.repo_path / target_rel
+
+    git_pull(cfg.repo_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    attendees = meeting.get("attendees") or []
+    if isinstance(attendees, str):
+        try:
+            attendees = json.loads(attendees)
+        except json.JSONDecodeError:
+            attendees = []
+
+    header = (
+        f"# {meeting.get('title') or 'Meeting'}\n\n"
+        f"- **Date:** {date}\n"
+        f"- **Meeting ID:** {meeting.get('meeting_id', '')}\n"
+        f"- **URL:** {meeting.get('meeting_url') or '(none)'}\n"
+        f"- **Duration:** {meeting.get('duration_seconds') or '?'}s\n"
+        f"- **Attendees:** {', '.join(a.get('email') or a.get('name') or '?' for a in attendees) or '(none listed)'}\n"
+        f"- **Source:** krisp\n\n---\n\n"
+    )
+    target.write_text(header + (meeting.get("transcript_text") or "(no transcript)") + "\n")
+
+    paths_to_commit = [target_rel]
+    for kind, col in (("notes", "notes_text"), ("outline", "outline_text"),
+                      ("key_points", "key_points_text")):
+        if meeting.get(col):
+            extra = target.parent / f"{kind}.md"
+            extra.write_text(f"# {kind.replace('_', ' ').title()}\n\n{meeting[col]}\n")
+            paths_to_commit.append(str(extra.relative_to(cfg.repo_path)))
+
+    # WORKLOG entry
+    worklog = cfg.repo_path / "WORKLOG.md"
+    if worklog.exists():
+        line = f"\n- {date}: meeting `{slug}` filed at `{target_rel}` (Flyn auto-route)\n"
+        worklog.write_text(worklog.read_text() + line)
+        paths_to_commit.append("WORKLOG.md")
+
+    sha = git_commit_and_push(
+        cfg.repo_path, paths=paths_to_commit,
+        message=f"docs(meetings): add Krisp transcript for {date} {slug} (auto-routed)",
+    )
+
+    graphiti_episode(
+        body=(
+            f"On {date}, project {cfg.display_name} had meeting "
+            f"'{meeting.get('title')}' attended by "
+            f"{', '.join(a.get('email') or a.get('name') or '?' for a in attendees)}. "
+            f"Transcript filed at commit {sha[:8]}."
+        ),
+        name=f"{cfg.slug}-meeting-{date}-{slug}",
+    )
+
+    # Notify operators on each project's morning-standup recipients list.
+    recipients = (cfg.raw.get("cadence", {})
+                  .get("morning_standup", {})
+                  .get("recipients", []))
+    by_name = {s.name.lower(): s for s in cfg.stakeholders}
+    for name in recipients:
+        s = by_name.get(name.lower())
+        if s and s.chat_id and s.chat_id != "TBD":
+            telegram_send(
+                s.chat_id,
+                f"🎤 New meeting routed to {cfg.slug}: {meeting.get('title')} ({date})\n"
+                f"  → {target_rel}",
+            )
+
+    return {"commit_sha": sha, "target_rel": target_rel}
