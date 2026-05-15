@@ -16,6 +16,30 @@ import re
 import sys
 from pathlib import Path
 
+
+def _load_allowlist(root: Path) -> set[tuple[str, str]]:
+    """Read <root>/.sanitize-allowlist and return a set of (relative_file, pattern_label) tuples."""
+    path = root / ".sanitize-allowlist"
+    if not path.is_file():
+        return set()
+    out: set[tuple[str, str]] = set()
+    for raw in path.read_text().splitlines():
+        # Skip full-line comments and blank lines
+        if raw.lstrip().startswith("#") or not raw.strip():
+            continue
+        # Strip inline comment (must be preceded by two spaces to avoid ambiguity)
+        line = raw
+        if "  #" in line:
+            line = line.split("  #", 1)[0]
+        line = line.strip()
+        if ":" not in line:
+            continue
+        # Split on FIRST colon only: file_path : pattern_label
+        # (pattern labels can themselves contain colons, e.g. non-allowlisted-url:host)
+        file_part, label = line.split(":", 1)
+        out.add((file_part.strip(), label.strip()))
+    return out
+
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("curl|wget piped to shell",   re.compile(r"(curl|wget)\s[^|;\n]*\|\s*(sh|bash)")),
     ("base64 piped to shell",       re.compile(r"base64\s+-d.*\|\s*(sh|bash)")),
@@ -33,7 +57,11 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 DOMAIN_ALLOW = {"localhost", "127.0.0.1", "::1"}
 
 
-def scan_file(path: Path) -> list[tuple[str, int, str]]:
+def scan_file(
+    path: Path,
+    rel: str,
+    allowlist: set[tuple[str, str]],
+) -> list[tuple[str, int, str]]:
     findings: list[tuple[str, int, str]] = []
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -42,11 +70,16 @@ def scan_file(path: Path) -> list[tuple[str, int, str]]:
     for i, line in enumerate(text.splitlines(), 1):
         for label, pat in PATTERNS:
             if pat.search(line):
+                if (rel, label) in allowlist:
+                    continue  # allowlisted
                 findings.append((label, i, line.strip()[:200]))
         for m in re.finditer(r"https?://([^\s/'\"`)]+)", line):
             host = m.group(1).split(":")[0]
             if host not in DOMAIN_ALLOW and not host.endswith(".internal"):
-                findings.append((f"non-allowlisted-url:{host}", i, line.strip()[:200]))
+                label = f"non-allowlisted-url:{host}"
+                if (rel, label) in allowlist:
+                    continue  # allowlisted
+                findings.append((label, i, line.strip()[:200]))
     return findings
 
 
@@ -59,13 +92,15 @@ def main(argv: list[str]) -> int:
         print(f"not found: {root}", file=sys.stderr)
         return 2
     files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file()]
+    allowlist = _load_allowlist(root) if root.is_dir() else set()
     any_findings = False
     for f in files:
         if f.suffix in {".md", ".txt", ".sh", ".py", ".ts", ".js", ".yaml", ".yml", ".json", ""}:
-            findings = scan_file(f)
+            rel = str(f.relative_to(root)) if root.is_dir() else f.name
+            findings = scan_file(f, rel, allowlist)
             if findings:
                 any_findings = True
-                print(f"\n=== {f.relative_to(root) if root.is_dir() else f.name} ===")
+                print(f"\n=== {rel} ===")
                 for label, line_no, snippet in findings:
                     print(f"  L{line_no}  [{label}]  {snippet}")
     if any_findings:
