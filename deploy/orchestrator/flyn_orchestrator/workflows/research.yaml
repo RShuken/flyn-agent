@@ -1,0 +1,37 @@
+# Phase 3 research workflow policy.
+# See spec §3 research workflow row + ORCHESTRATOR-PHASE-RUBRIC.md Phase 3.
+name: research
+intent_patterns:
+  - "research"
+  - "find out"
+  - "investigate"
+  - "look up"
+  - "compare"
+  - "what is"
+  - "what are"
+  - "how does"
+roles:
+  - name: pm
+    model: claude
+    prompt: pm_research
+  - name: researcher
+    model: claude
+    prompt: researcher
+    parallel: true       # N researchers run concurrently (N comes from PM decomposition, capped at 4)
+  - name: critic
+    model: claude
+    prompt: critic
+    readonly: true       # fresh-context audit; no edits
+  - name: synthesizer
+    model: claude
+    prompt: synthesizer
+flow:
+  - intake
+  - decompose          # PM splits intent into sub-questions
+  - parallel_research  # N researchers run concurrently
+  - critique           # fresh-context critic audits combined output
+  - synthesize         # merge into final report
+  - deliver
+approval_gates:
+  publish: teammate    # only required if the request explicitly asks to publish externally
+budget_default_usd: 2.0

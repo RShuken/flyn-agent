@@ -20,6 +20,9 @@ from .cost import BudgetExceeded, CostTracker
 from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
 from .pr import PRError
+from .research import (
+    decompose_intent, run_researchers, critique, synthesize, write_output,
+)
 from .reviewer import review as _default_review
 from .state import StateStore
 from .workflows import Workflow, match_intent
@@ -161,6 +164,11 @@ class TaskRouter:
                              actor="router",
                              reason="stub PM: single-builder plan")
             current_state = TaskState.DECOMPOSED
+
+            # Research workflow branches here — skips builder/reviewer/PR phases.
+            if t.workflow == "research":
+                self._run_research_phase(t)
+                return self._store.get_task(task_id)
 
             # Synthesised plan object (Phase 2 MVP — real PM invocation is Phase 2b)
             plan_obj = {
@@ -419,6 +427,118 @@ class TaskRouter:
         return updated_task
 
     # ------------------------------------------------------------------
+    # Research-workflow phase
+    # ------------------------------------------------------------------
+
+    def _run_research_phase(self, task: TaskRecord) -> None:
+        """Walk the 5-step research flow. Idempotent for state transitions.
+
+        Steps:
+          DECOMPOSED → DISPATCHED (PM decomposes intent)
+          DISPATCHED → RUNNING   (parallel researchers)
+          RUNNING    → REVIEWED  (critique)
+          REVIEWED   → DELIVERABLE_READY | CHANGES_REQUESTED
+        """
+        backend = self._dispatcher._registry.get("claude-p")
+        scratch = self._wt_mgr._dir / task.task_id
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        # 1. Decompose
+        self._safe_transition(
+            task.task_id, TaskState.DECOMPOSED, TaskState.DISPATCHED,
+            actor="router", reason="research: PM decomposing",
+        )
+        plan = decompose_intent(
+            task.intent, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+        if plan is None or not plan.sub_questions:
+            self._safe_transition(
+                task.task_id, TaskState.DISPATCHED, TaskState.FAILED,
+                actor="research", reason="PM output unparseable or empty",
+            )
+            self._memory.emit(
+                source="orchestrator", event_type="task_failed",
+                subject=task.task_id, body="research PM step failed",
+                dedup_key=f"orch-{task.task_id}-pm-fail", importance="warm",
+            )
+            return
+
+        # 2. Researchers
+        self._safe_transition(
+            task.task_id, TaskState.DISPATCHED, TaskState.RUNNING,
+            actor="research", reason=f"running {len(plan.sub_questions)} researchers",
+        )
+        outputs = run_researchers(
+            plan, scratch_dir=scratch, backend=backend,
+            task_id=task.task_id, max_parallel=4,
+        )
+        if not outputs:
+            self._safe_transition(
+                task.task_id, TaskState.RUNNING, TaskState.FAILED,
+                actor="research", reason="no researcher outputs",
+            )
+            return
+
+        # 3. Critique
+        self._safe_transition(
+            task.task_id, TaskState.RUNNING, TaskState.REVIEWED,
+            actor="research", reason=f"got {len(outputs)} researcher outputs",
+        )
+        critique_result = critique(
+            plan, outputs, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+        )
+        self._memory.emit(
+            source="orchestrator", event_type="critique_complete",
+            subject=task.task_id,
+            body=f"critique passed={critique_result.passed}; "
+                 f"{len(critique_result.findings)} findings",
+            dedup_key=f"orch-{task.task_id}-critique", importance="warm",
+        )
+        if not critique_result.passed:
+            critical_findings = [
+                f for f in critique_result.findings
+                if f.severity in ("critical", "important")
+            ]
+            self._safe_transition(
+                task.task_id, TaskState.REVIEWED, TaskState.CHANGES_REQUESTED,
+                actor="critic",
+                reason=f"critique failed: {len(critical_findings)} blocking findings",
+            )
+            return
+
+        # 4. Synthesize
+        minor = [f for f in critique_result.findings if f.severity in ("minor", "info")]
+        report_md = synthesize(
+            title=plan.title, requester=task.sender_identifier,
+            task_id=task.task_id, rationale=plan.rationale, outputs=outputs,
+            minor_findings=minor, scratch_dir=scratch, backend=backend,
+        )
+
+        # 5. Write output
+        report_path = write_output(
+            report_md=report_md, outputs=outputs, title=plan.title, task_id=task.task_id,
+        )
+        self._store.update_task_payload(task.task_id, {
+            "report_path": str(report_path),
+            "research_title": plan.title,
+        })
+        self._safe_transition(
+            task.task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
+            actor="router", reason=f"report at {report_path}",
+        )
+        self._memory.emit(
+            source="orchestrator", event_type="research_complete",
+            subject=task.task_id,
+            body=f"Research report '{plan.title}' delivered to {report_path}",
+            dedup_key=f"orch-{task.task_id}-research", importance="warm",
+        )
+        self._notify_originating_channel(
+            self._store.get_task(task.task_id), None,
+            research_report_path=str(report_path),
+            research_summary=report_md[:1500],
+        )
+
+    # ------------------------------------------------------------------
     # Approval handling
     # ------------------------------------------------------------------
 
@@ -496,9 +616,11 @@ class TaskRouter:
     def _notify_originating_channel(
         self,
         task: TaskRecord,
-        review: ReviewFindings,
+        review: Optional[ReviewFindings],
         *,
         pr_url: Optional[str] = None,
+        research_report_path: Optional[str] = None,
+        research_summary: Optional[str] = None,
     ) -> None:
         """Best-effort notification to the originating channel. Never raises."""
         if self._channels is None:
@@ -512,7 +634,12 @@ class TaskRouter:
             adapter = self._channels.get(channel_name)
         except KeyError:
             return
-        body = self._format_notify_body(task, review, pr_url=pr_url)
+        body = self._format_notify_body(
+            task, review,
+            pr_url=pr_url,
+            research_report_path=research_report_path,
+            research_summary=research_summary,
+        )
         target = str(chat_id) if chat_id else task.sender_identifier
         try:
             adapter.send(channel=target, body=body)
@@ -522,15 +649,32 @@ class TaskRouter:
     def _format_notify_body(
         self,
         task: TaskRecord,
-        review: ReviewFindings,
+        review: Optional[ReviewFindings],
         *,
         pr_url: Optional[str] = None,
+        research_report_path: Optional[str] = None,
+        research_summary: Optional[str] = None,
     ) -> str:
-        n_findings = len(review.findings)
-        n_critical = sum(1 for f in review.findings if f.severity == "critical")
         intent_short = (task.intent or "")[:200]
-        summary_short = (review.summary or "")[:200]
-        icon = "✅" if review.passed else "⚠️"
+        if research_report_path:
+            # Research workflow notification
+            summary_short = (research_summary or "")[:500]
+            if research_summary and len(research_summary) > 500:
+                summary_short += "..."
+            report_line = f"\n*Report:* `{research_report_path}`"
+            summary_line = f"\n*Summary:*\n{summary_short}" if summary_short else ""
+            return (
+                f"✅ *{task.task_id} research delivered*\n"
+                f"\n"
+                f"*Intent:* {intent_short}"
+                f"{report_line}"
+                f"{summary_line}"
+            )
+        # Default / dev workflow notification
+        n_findings = len(review.findings) if review else 0
+        n_critical = sum(1 for f in review.findings if f.severity == "critical") if review else 0
+        summary_short = (review.summary or "")[:200] if review else ""
+        icon = "✅" if (review and review.passed) else "⚠️"
         pr_line = f"\n*PR:* {pr_url}" if pr_url else ""
         return (
             f"{icon} *{task.task_id} delivered*\n"
