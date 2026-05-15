@@ -1,0 +1,49 @@
+# Phase 5 ops workflow policy. Strictest gates of all workflows.
+# Risk-tier classifier + mandatory dry-run for critical + before/after audit.
+name: ops
+intent_patterns:
+  - "rotate"
+  - "deploy"
+  - "configure"
+  - "set up"
+  - "monitor"
+  - "audit"
+  - "backup"
+  - "restore"
+  - "diagnose"
+  - "kill"
+  - "stop"
+  - "start"
+  - "restart"
+roles:
+  - name: pm
+    model: claude
+    prompt: pm_ops
+  - name: risk_classifier
+    model: claude
+    prompt: risk_classifier
+    readonly: true
+  - name: executor
+    model: claude
+    prompt: executor
+  - name: validator
+    model: claude
+    prompt: validator
+    readonly: true
+flow:
+  - intake
+  - spec
+  - risk_assess
+  - dry_run
+  - human_approval
+  - snapshot_before
+  - execute
+  - snapshot_after
+  - validate
+  - audit_log
+approval_gates:
+  low_tier_approval: teammate
+  medium_tier_approval: owner
+  high_tier_approval: owner
+  critical_tier_approval: owner_with_dry_run
+budget_default_usd: 3.0
