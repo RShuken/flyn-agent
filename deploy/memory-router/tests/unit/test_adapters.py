@@ -99,3 +99,31 @@ def test_lesson_adapter_dedups_by_subject(tmp_path):
     files = list(tmp_path.glob("*-some-lesson.md"))
     assert len(files) == 1
     assert "updated version" in files[0].read_text()
+
+
+from datetime import datetime, timezone
+from flyn_memory_router.adapters.cool import CoolDailyRollupAdapter
+
+
+def test_cool_appends_to_today_file(tmp_path):
+    a = CoolDailyRollupAdapter(memory_dir=tmp_path, today=lambda: datetime(2026, 5, 15, tzinfo=timezone.utc))
+    e = InboundEvent(source="orchestrator", event_type="worker_dispatched",
+                     subject="T-0042/w-001", body="builder dispatched on src/api/sponsors.*",
+                     dedup_key="orch-w-001-dispatch")
+    a.write(e)
+    f = tmp_path / "orchestrator" / "2026-05-15-cool-events.jsonl"
+    assert f.exists()
+    assert "builder dispatched" in f.read_text()
+
+
+def test_cool_separates_days(tmp_path):
+    day1 = datetime(2026, 5, 15, tzinfo=timezone.utc)
+    day2 = datetime(2026, 5, 16, tzinfo=timezone.utc)
+    a1 = CoolDailyRollupAdapter(memory_dir=tmp_path, today=lambda: day1)
+    a2 = CoolDailyRollupAdapter(memory_dir=tmp_path, today=lambda: day2)
+    e = lambda i: InboundEvent(source="orchestrator", event_type="worker_dispatched",
+                                subject=f"T-{i:04d}", body=f"e-{i}", dedup_key=f"k-{i}")
+    a1.write(e(1))
+    a2.write(e(2))
+    assert (tmp_path / "orchestrator" / "2026-05-15-cool-events.jsonl").exists()
+    assert (tmp_path / "orchestrator" / "2026-05-16-cool-events.jsonl").exists()
