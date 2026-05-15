@@ -25,7 +25,12 @@ CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 
 
 def _load_anthropic_api_key_from_profiles() -> Optional[str]:
-    """Read ANTHROPIC_API_KEY from auth-profiles.json if available."""
+    """Read ANTHROPIC_API_KEY from auth-profiles.json if available.
+
+    Only returns tokens that look like API keys (sk-ant-api*). OAuth tokens
+    (sk-ant-oat*) are stored in the same profile slot but cannot be used as
+    ANTHROPIC_API_KEY — they'd fail auth and waste a worker turn. Return None
+    instead so the backend falls back to OAuth-via-credentials-cache."""
     p = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
     if not p.exists():
         return None
@@ -34,7 +39,11 @@ def _load_anthropic_api_key_from_profiles() -> Optional[str]:
             d = json.load(f)
         for key in ("anthropic:default", "anthropic"):
             if key in d.get("profiles", {}):
-                return d["profiles"][key].get("token")
+                token = d["profiles"][key].get("token", "")
+                if token.startswith("sk-ant-api"):
+                    return token
+                # Anything else (sk-ant-oat-..., empty, etc) is not a valid API key.
+                return None
     except Exception:
         pass
     return None

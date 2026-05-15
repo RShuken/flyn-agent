@@ -84,6 +84,36 @@ def test_claude_p_does_not_set_key_if_none_available(tmp_path, monkeypatch):
     assert "ANTHROPIC_API_KEY" not in env
 
 
+def test_load_anthropic_api_key_rejects_oauth_tokens(tmp_path, monkeypatch):
+    """REGRESSION 2026-05-15: real auth-profiles.json holds an OAuth token
+    (sk-ant-oat-...) under anthropic:default. The loader must NOT return that —
+    passing it as ANTHROPIC_API_KEY would fail every worker."""
+    import json
+    fake_home = tmp_path
+    profile_dir = fake_home / ".openclaw" / "agents" / "main" / "agent"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "auth-profiles.json").write_text(json.dumps({
+        "profiles": {"anthropic:default": {"token": "sk-ant-oat-abcdef123456"}}
+    }))
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    from flyn_orchestrator.backends.claude_p import _load_anthropic_api_key_from_profiles
+    assert _load_anthropic_api_key_from_profiles() is None
+
+
+def test_load_anthropic_api_key_accepts_real_api_keys(tmp_path, monkeypatch):
+    """REGRESSION 2026-05-15 paired: sk-ant-api* tokens MUST come through."""
+    import json
+    fake_home = tmp_path
+    profile_dir = fake_home / ".openclaw" / "agents" / "main" / "agent"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "auth-profiles.json").write_text(json.dumps({
+        "profiles": {"anthropic:default": {"token": "sk-ant-api03-realkey-abc"}}
+    }))
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    from flyn_orchestrator.backends.claude_p import _load_anthropic_api_key_from_profiles
+    assert _load_anthropic_api_key_from_profiles() == "sk-ant-api03-realkey-abc"
+
+
 def test_codex_exec_constructs(tmp_path):
     from flyn_orchestrator.backends.codex_exec import CodexExecBackend
     b = CodexExecBackend()
