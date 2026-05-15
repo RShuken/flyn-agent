@@ -150,3 +150,37 @@ When Ryan or Beth references "the wiki" / "the site" / "modify question X"
 without naming a system — this is what they mean. **Not Notion. Not Google
 Docs. This.** Always check `workspace/WIKI.md` before reaching for Notion or
 asking which platform.
+
+---
+
+## Memory ingestion — flyn-memory-router (local REST, called via curl)
+
+Universal ingestion entry point for memory writes. **Retrieval hierarchy stays unchanged** (MEMORY.md → Graphiti → `openclaw memory search` → Lossless Claw); only write-paths route through here.
+
+```bash
+# Health
+curl -sS http://127.0.0.1:8400/api/health
+
+# Ingest a fact — body is prose; router classifies importance + fans out
+curl -sS -X POST http://127.0.0.1:8400/api/memory/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "source": "manual",
+    "event_type": "decision_recorded",
+    "subject": "deploy-cap-bump",
+    "body": "Ryan approved Railway cost cap increase on 2026-05-15.",
+    "dedup_key": "deploy-cap-bump-2026-05-15"
+  }'
+
+# Pin a hot-tier fact permanently (Owner only)
+curl -sS -X POST http://127.0.0.1:8400/api/memory/pin \
+  -H 'Content-Type: application/json' \
+  -d '{"subject":"Beth chat_id","body":"7434192034","sender_role":"owner"}'
+
+# Unpin
+curl -sS -X DELETE 'http://127.0.0.1:8400/api/memory/pin/Beth%20chat_id?sender_role=owner'
+```
+
+**Routing rule:** every ingest event lands at this door; do NOT POST directly to Graphiti from new code. Existing pipelines (Krisp, Fathom) migrate via passthrough mode.
+
+**If service down:** launchd agent `ai.flyn.memory-router`. Restart with `launchctl kickstart -k gui/$(id -u)/ai.flyn.memory-router`. Logs at `/tmp/flyn-memory-router.log`.

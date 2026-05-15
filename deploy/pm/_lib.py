@@ -321,15 +321,41 @@ def route_meeting_to_project(meeting: dict, cfg: ProjectConfig) -> dict:
         message=f"docs(meetings): add Krisp transcript for {date} {slug} (auto-routed)",
     )
 
-    graphiti_episode(
-        body=(
-            f"On {date}, project {cfg.display_name} had meeting "
-            f"'{meeting.get('title')}' attended by "
-            f"{', '.join(a.get('email') or a.get('name') or '?' for a in attendees)}. "
-            f"Transcript filed at commit {sha[:8]}."
-        ),
-        name=f"{cfg.slug}-meeting-{date}-{slug}",
+    _summary_body = (
+        f"On {date}, project {cfg.display_name} had meeting "
+        f"'{meeting.get('title')}' attended by "
+        f"{', '.join(a.get('email') or a.get('name') or '?' for a in attendees)}. "
+        f"Transcript filed at commit {sha[:8]}."
     )
+    _episode_name = f"{cfg.slug}-meeting-{date}-{slug}"
+
+    # New: route through the MemoryRouter (port 8400).
+    # Wrapped in try/except so a router outage does not crash the Krisp flow.
+    try:
+        _router_payload = json.dumps({
+            "source": "krisp",
+            "event_type": "meeting_summary",
+            "subject": f"meeting-{meeting.get('meeting_id', slug)}",
+            "body": _summary_body,
+            "dedup_key": f"krisp-{meeting.get('meeting_id', slug)}",
+            "raw_payload": {"meeting_id": meeting.get("meeting_id"), "project": cfg.slug},
+        }).encode()
+        _router_req = urllib.request.Request(
+            "http://127.0.0.1:8400/api/memory/ingest",
+            data=_router_payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(_router_req, timeout=10)
+    except Exception:  # noqa: BLE001
+        # Router is down or not yet deployed — fall through to legacy path.
+        pass
+
+    # Legacy: direct Graphiti POST. Gated by FLYN_MEMORY_ROUTER_PASSTHROUGH
+    # (default "true") so the pipeline keeps writing to Graphiti during
+    # migration. Set to "false" once the router is the sole source of truth.
+    if os.environ.get("FLYN_MEMORY_ROUTER_PASSTHROUGH", "true").lower() == "true":
+        graphiti_episode(body=_summary_body, name=_episode_name)
 
     # Notify operators on each project's morning-standup recipients list.
     recipients = (cfg.raw.get("cadence", {})
