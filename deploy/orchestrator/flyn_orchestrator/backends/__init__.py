@@ -2,6 +2,7 @@
 from __future__ import annotations
 from .base import WorkerBackend, WorkerResult
 from .claude_p import ClaudePBackend
+from .codex_exec import CodexExecBackend
 
 
 class BackendRegistry:
@@ -19,6 +20,7 @@ class BackendRegistry:
 
 _DEFAULT_REGISTRY = BackendRegistry()
 _DEFAULT_REGISTRY.register("claude-p", ClaudePBackend())
+_DEFAULT_REGISTRY.register("codex-exec", CodexExecBackend())
 
 
 def default_registry() -> BackendRegistry:
@@ -36,4 +38,5 @@ __all__ = [
     "default_registry",
     "get_backend",
     "ClaudePBackend",
+    "CodexExecBackend",
 ]

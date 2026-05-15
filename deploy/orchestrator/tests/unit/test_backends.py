@@ -82,3 +82,46 @@ def test_claude_p_does_not_set_key_if_none_available(tmp_path, monkeypatch):
     b = ClaudePBackend()
     env = b._build_env()
     assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_codex_exec_constructs(tmp_path):
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    assert b.name == "codex-exec"
+    spec = WorkerSpec(
+        task_id="T-1", worker_id="w-001", role=WorkerRole.BUILDER,
+        backend="codex-exec", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=1.0,
+    )
+    cmd = b._build_command(spec, "hello")
+    assert cmd[0].endswith("codex") or cmd[0] == "codex"
+    assert "exec" in cmd
+    assert "--json" in cmd
+    assert "--sandbox" in cmd
+    assert "workspace-write" in cmd
+
+
+def test_codex_exec_registered_by_default():
+    from flyn_orchestrator.backends import get_backend
+    b = get_backend("codex-exec")
+    assert b.name == "codex-exec"
+
+
+def test_codex_exec_env_includes_openai_key_from_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-test-codex-key")
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    env = b._build_env()
+    assert env.get("OPENAI_API_KEY") == "sk-proj-test-codex-key"
+
+
+def test_codex_exec_env_loads_from_auth_profiles(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "flyn_orchestrator.backends.codex_exec._load_openai_api_key_from_profiles",
+        lambda: "sk-proj-from-profile",
+    )
+    from flyn_orchestrator.backends.codex_exec import CodexExecBackend
+    b = CodexExecBackend()
+    env = b._build_env()
+    assert env.get("OPENAI_API_KEY") == "sk-proj-from-profile"
