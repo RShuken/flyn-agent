@@ -1,0 +1,19 @@
+{
+  "event_id": "smoke-2026-05-14-001",
+  "event_type": "transcript.created",
+  "meeting": {
+    "id": "mtg-smoke-001",
+    "title": "Smoke test from fixture",
+    "url": "https://krisp.ai/m/smoke",
+    "started_at": "2026-05-14T20:00:00Z",
+    "ended_at": "2026-05-14T20:25:00Z",
+    "duration_seconds": 1500,
+    "attendees": [
+      {"name": "Ryan Shuken", "email": "ryanshuken@gmail.com"},
+      {"name": "Beth Kukla", "email": "beth@example.com"}
+    ]
+  },
+  "transcript": {
+    "text": "Ryan: Hey Beth, quick check on the OL sprint.\nBeth: Sounds good."
+  }
+}
