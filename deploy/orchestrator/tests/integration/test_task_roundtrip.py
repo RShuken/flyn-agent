@@ -158,3 +158,86 @@ def test_happy_path_task_roundtrip(tmp_path: Path, test_repo: Path):
     wt = tmp_path / "ws" / task_id
     assert wt.exists(), f"worktree dir not found: {wt}"
     assert (wt / "hello.py").exists(), f"hello.py not in worktree: {list(wt.iterdir())}"
+
+
+def test_router_picks_dev_workflow_for_build_intent(tmp_path: Path, test_repo: Path):
+    """When 'build' is in the intent, task.workflow should be 'dev'."""
+    from flyn_orchestrator.workflows import load_workflow
+    from pathlib import Path as _Path
+
+    dev_wf_path = _Path(__file__).parents[2] / "flyn_orchestrator" / "workflows" / "dev.yaml"
+    dev_wf = load_workflow(dev_wf_path)
+
+    stub_backend = MagicMock()
+    stub_backend.name = "claude-p"
+
+    def _run(spec, prompt, *, cost_tracker=None):
+        wt = Path(spec.worktree_path)
+        (wt / "x.py").write_text("# x\n")
+        subprocess.run(["git", "-C", str(wt), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(wt), "commit", "-m", "x"], check=True, capture_output=True)
+        cap = wt / f"{spec.worker_id}.jsonl"
+        cap.write_text('{"x":1}\n' * 5)
+        return WorkerResult(
+            worker_id=spec.worker_id, exit_code=0, capture_path=cap,
+            cost_usd=0.0, duration_ms=10, changed_files=["x.py"], summary="ok",
+        )
+
+    stub_backend.run = _run
+
+    dispatcher = WorkerDispatcher()
+    dispatcher.register_backend("claude-p", stub_backend)
+
+    http = MagicMock()
+    http.post.return_value.status_code = 200
+    memory = MemoryEmitter(router_url="http://localhost:8400", http=http)
+    store = StateStore(db_path=tmp_path / "state.db")
+    wt_mgr = WorktreeManager(workspaces_dir=tmp_path / "ws")
+
+    router = TaskRouter(
+        store=store, dispatcher=dispatcher, worktree_mgr=wt_mgr,
+        memory=memory,
+        repo_path_for_workflow=lambda w: test_repo,
+        builder_prompt_path=Path(__file__).parents[2] / "flyn_orchestrator" / "prompts" / "builder.md",
+        reviewer_invoker=lambda **kw: ReviewFindings(
+            worker_id=kw["worker_id"] + "-reviewer", passed=True, summary="LGTM", findings=[]),
+        workflows=[dev_wf],
+    )
+
+    req = InboundTaskRequest(
+        channel="manual", sender_identifier="ryan", sender_role="owner",
+        intent="please build a /healthz endpoint",
+        external_message_id="msg-wf-1",
+    )
+    task_id = router.accept(req)
+    task = store.get_task(task_id)
+    assert task.workflow == "dev", f"expected dev workflow, got {task.workflow!r}"
+
+
+def test_router_falls_back_to_default_when_no_workflow_matches(tmp_path: Path, test_repo: Path):
+    """When no workflow's intent_patterns match, workflow should be 'default'."""
+    from flyn_orchestrator.workflows import load_workflow
+    from pathlib import Path as _Path
+
+    dev_wf = load_workflow(_Path(__file__).parents[2] / "flyn_orchestrator" / "workflows" / "dev.yaml")
+
+    dispatcher = WorkerDispatcher()
+    http = MagicMock()
+    memory = MemoryEmitter(router_url="http://localhost:8400", http=http)
+    store = StateStore(db_path=tmp_path / "state.db")
+    wt_mgr = WorktreeManager(workspaces_dir=tmp_path / "ws")
+
+    router = TaskRouter(
+        store=store, dispatcher=dispatcher, worktree_mgr=wt_mgr,
+        memory=memory, repo_path_for_workflow=lambda w: test_repo,
+        builder_prompt_path=Path(__file__).parents[2] / "flyn_orchestrator" / "prompts" / "builder.md",
+        workflows=[dev_wf],
+    )
+
+    req = InboundTaskRequest(
+        channel="manual", sender_identifier="ryan", sender_role="owner",
+        intent="just say hello",
+        external_message_id="msg-wf-2",
+    )
+    task_id = router.accept(req)
+    assert store.get_task(task_id).workflow == "default"

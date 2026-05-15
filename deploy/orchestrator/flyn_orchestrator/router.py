@@ -21,6 +21,7 @@ from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
 from .reviewer import review as _default_review
 from .state import StateStore
+from .workflows import Workflow, match_intent
 from .types import (
     InboundTaskRequest,
     ReviewFindings,
@@ -45,6 +46,7 @@ class TaskRouter:
         builder_prompt_path: Path,
         reviewer_invoker: Optional[Callable[..., ReviewFindings]] = None,
         channel_registry: Optional[ChannelRegistry] = None,
+        workflows: Optional[list[Workflow]] = None,
     ) -> None:
         self._store = store
         self._dispatcher = dispatcher
@@ -54,6 +56,7 @@ class TaskRouter:
         self._builder_prompt_path = builder_prompt_path
         self._reviewer_invoker = reviewer_invoker or _default_review
         self._channels = channel_registry
+        self._workflows = workflows or []
 
     # ------------------------------------------------------------------
     # Public API
@@ -62,7 +65,9 @@ class TaskRouter:
     def accept(self, req: InboundTaskRequest) -> str:
         """Insert task into the store and return its task_id immediately."""
         task_id = self._store.next_task_id()
-        workflow = req.workflow_override or "default"
+        matched = match_intent(req.intent, self._workflows)
+        workflow_name = matched.name if matched else "default"
+        workflow = req.workflow_override or workflow_name
         record = TaskRecord(
             task_id=task_id,
             workflow=workflow,
