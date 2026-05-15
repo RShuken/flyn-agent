@@ -42,6 +42,7 @@ class PinRecord:
     pinned_at: datetime
     permanent: bool
     task_state: str          # 'active' | 'completed' | 'failed' | 'cancelled'
+    last_updated: datetime | None = None    # set by _PinStore on upsert/read; None on construction
 
 
 def _now() -> datetime:
@@ -59,12 +60,14 @@ class _PinStore:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self._path)
         try:
+            conn.execute("PRAGMA journal_mode=WAL")
             yield conn
             conn.commit()
         finally:
             conn.close()
 
     def upsert(self, p: PinRecord) -> None:
+        last_updated = (p.last_updated if p.last_updated is not None else _now()).isoformat()
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO hot_pins(subject, body, pinned_at, last_updated, permanent, task_state)
@@ -74,7 +77,7 @@ class _PinStore:
                     last_updated=excluded.last_updated,
                     permanent=excluded.permanent,
                     task_state=excluded.task_state
-            """, (p.subject, p.body, p.pinned_at.isoformat(), _now().isoformat(),
+            """, (p.subject, p.body, p.pinned_at.isoformat(), last_updated,
                   1 if p.permanent else 0, p.task_state))
 
     def delete(self, subject: str) -> bool:
@@ -82,14 +85,30 @@ class _PinStore:
             cur = conn.execute("DELETE FROM hot_pins WHERE subject = ?", (subject,))
             return cur.rowcount > 0
 
+    def get(self, subject: str) -> PinRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT subject, body, pinned_at, permanent, task_state, last_updated "
+                "FROM hot_pins WHERE subject = ?", (subject,)
+            ).fetchone()
+        if not row:
+            return None
+        return PinRecord(subject=row[0], body=row[1],
+                         pinned_at=datetime.fromisoformat(row[2]),
+                         permanent=bool(row[3]), task_state=row[4],
+                         last_updated=datetime.fromisoformat(row[5]) if row[5] else None)
+
     def list_all(self) -> list[PinRecord]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT subject, body, pinned_at, permanent, task_state FROM hot_pins ORDER BY pinned_at"
+                "SELECT subject, body, pinned_at, permanent, task_state, last_updated "
+                "FROM hot_pins ORDER BY pinned_at"
             ).fetchall()
         return [PinRecord(subject=r[0], body=r[1],
                           pinned_at=datetime.fromisoformat(r[2]),
-                          permanent=bool(r[3]), task_state=r[4]) for r in rows]
+                          permanent=bool(r[3]), task_state=r[4],
+                          last_updated=datetime.fromisoformat(r[5]) if r[5] else None)
+                for r in rows]
 
 
 class HotMemoryMdAdapter:
@@ -111,10 +130,16 @@ class HotMemoryMdAdapter:
         task_state = "active"
         if event.raw_payload and "task_state" in event.raw_payload:
             task_state = str(event.raw_payload["task_state"])
-        permanent = bool(event.raw_payload and event.raw_payload.get("permanent"))
+        incoming_permanent = bool(event.raw_payload and event.raw_payload.get("permanent"))
+        # Preserve permanent flag if it was set previously and incoming doesn't override.
+        existing = self._store.get(event.subject)
+        if existing is not None and existing.permanent and not incoming_permanent:
+            permanent = True
+        else:
+            permanent = incoming_permanent
         self._store.upsert(PinRecord(
             subject=event.subject, body=event.body, pinned_at=self._now(),
-            permanent=permanent, task_state=task_state,
+            permanent=permanent, task_state=task_state, last_updated=self._now(),
         ))
         self._render()
         return WriteResult(target=self.name, ok=True, detail=f"pinned {event.subject}")
@@ -122,7 +147,7 @@ class HotMemoryMdAdapter:
     def pin_permanent(self, subject: str, body: str) -> None:
         self._store.upsert(PinRecord(
             subject=subject, body=body, pinned_at=self._now(),
-            permanent=True, task_state="active",
+            permanent=True, task_state="active", last_updated=self._now(),
         ))
         self._render()
 
@@ -145,7 +170,8 @@ class HotMemoryMdAdapter:
             if p.permanent:
                 continue
             ttl = self._completed_ttl if p.task_state != "active" else self._active_ttl
-            if now - p.pinned_at > ttl:
+            reference = p.last_updated or p.pinned_at
+            if now - reference > ttl:
                 self._store.delete(p.subject)
                 removed += 1
         self._render()

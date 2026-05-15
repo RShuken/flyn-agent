@@ -205,7 +205,7 @@ def test_hot_decay_removes_expired_pins(tmp_path):
              active_ttl=timedelta(hours=72))
     old = now - timedelta(hours=80)  # past both TTLs
     a._store.upsert(PinRecord(subject="OLD-1", body="stale pin", pinned_at=old,
-                              permanent=False, task_state="active"))
+                              permanent=False, task_state="active", last_updated=old))
     a.decay()
     text = (tmp_path / "MEMORY.md").read_text()
     assert "OLD-1" not in text
@@ -219,3 +219,37 @@ def test_hot_permanent_survives_decay(tmp_path):
                               pinned_at=old, permanent=True, task_state="active"))
     a.decay()
     assert "PERM-1" in (tmp_path / "MEMORY.md").read_text()
+
+
+def test_hot_decay_uses_last_updated_not_pinned_at(tmp_path):
+    """REGRESSION: a pin re-touched recently should NOT decay even if originally pinned long ago."""
+    now = datetime(2026, 5, 15, 9, tzinfo=timezone.utc)
+    a = _hot(tmp_path, now=lambda: now,
+             completed_ttl=timedelta(hours=24),
+             active_ttl=timedelta(hours=72))
+    # Insert a stale pin (created 80h ago, past active TTL; last_updated also old)
+    old = now - timedelta(hours=80)
+    a._store.upsert(PinRecord(subject="REFRESH-1", body="stale-then-refreshed",
+                              pinned_at=old, permanent=False, task_state="active",
+                              last_updated=old))
+    # Re-upsert it (touching last_updated to now) but keep original pinned_at
+    a._store.upsert(PinRecord(subject="REFRESH-1", body="just refreshed",
+                              pinned_at=old, permanent=False, task_state="active",
+                              last_updated=now))
+    a.decay()
+    assert "REFRESH-1" in (tmp_path / "MEMORY.md").read_text()
+
+
+def test_hot_write_preserves_existing_permanent(tmp_path):
+    """REGRESSION: a permanent pin must not be silently demoted by a later non-permanent write."""
+    a = _hot(tmp_path, now=lambda: datetime(2026, 5, 15, 9, tzinfo=timezone.utc))
+    # Owner marks it permanent
+    a.pin_permanent("T-42", "important fact")
+    # Orchestrator emits an update event without setting permanent
+    a.write(InboundEvent(source="orchestrator", event_type="task_active_pin",
+                         subject="T-42", body="status updated",
+                         dedup_key="orch-T-42-update"))
+    # The pin must still be permanent (won't be touched by decay)
+    pins = a._store.list_all()
+    perm_pin = next(p for p in pins if p.subject == "T-42")
+    assert perm_pin.permanent is True
