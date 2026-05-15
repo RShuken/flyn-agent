@@ -211,11 +211,18 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 
 
 def audit(conn: sqlite3.Connection, actor: str, action: str,
-          meeting_id: str | None = None, payload: str = "{}") -> None:
+          meeting_id: str | None = None,
+          payload: dict[str, Any] | None = None) -> None:
+    """Append a row to the meeting_audit table.
+
+    Mirrors db.py's audit() pattern: takes a dict, serializes internally
+    with sort_keys=True for deterministic output.
+    """
     conn.execute(
         "INSERT INTO meeting_audit (meeting_id, actor, action, payload) "
         "VALUES (?, ?, ?, ?)",
-        (meeting_id, actor, action, payload),
+        (meeting_id, actor, action,
+         json.dumps(payload or {}, sort_keys=True)),
     )
 ```
 
@@ -510,7 +517,7 @@ async def receive_krisp(
         meetings_db.audit(
             conn, actor="krisp-webhook",
             action="event_received" if not duplicate else "event_duplicate",
-            payload=json.dumps({"event_id": event_id}),
+            payload={"event_id": event_id},
         )
     finally:
         conn.close()
@@ -773,7 +780,7 @@ Then modify the route handler. Replace the body block (between `conn = meetings_
             conn, actor="krisp-webhook",
             action="event_received" if not duplicate else "event_duplicate",
             meeting_id=(payload.get("meeting") or {}).get("id"),
-            payload=json.dumps({"event_id": event_id}),
+            payload={"event_id": event_id},
         )
     finally:
         conn.close()
@@ -1775,7 +1782,7 @@ def run_once(noop: bool = False) -> dict[str, int]:
                     meetings_db.audit(
                         conn, actor="categorizer", meeting_id=mid,
                         action="routed",
-                        payload=json.dumps({"project": slug, "sha": res["commit_sha"]}),
+                        payload={"project": slug, "sha": res["commit_sha"]},
                     )
                     counts["routed"] += 1
                 except Exception as e:  # noqa: BLE001
@@ -1788,7 +1795,7 @@ def run_once(noop: bool = False) -> dict[str, int]:
                     meetings_db.audit(
                         conn, actor="categorizer", meeting_id=mid,
                         action="route_failed",
-                        payload=json.dumps({"error": str(e)}),
+                        payload={"error": str(e)},
                     )
                     counts["error"] += 1
             else:
@@ -1801,7 +1808,7 @@ def run_once(noop: bool = False) -> dict[str, int]:
                 meetings_db.audit(
                     conn, actor="categorizer", meeting_id=mid,
                     action="marked_review",
-                    payload=json.dumps({"reason": reason, "confidence": conf}),
+                    payload={"reason": reason, "confidence": conf},
                 )
                 counts["review"] += 1
     finally:
@@ -2344,7 +2351,7 @@ def handle(message: str, state_path: Path | None = None) -> dict:
             meetings_db.audit(
                 conn, actor="route-cmd", meeting_id=meeting_id,
                 action="dropped",
-                payload=json.dumps({"index": idx}),
+                payload={"index": idx},
             )
             return {"ok": True, "reply": f"Meeting {idx} ({row['title']}) dropped."}
 
@@ -2374,7 +2381,7 @@ def handle(message: str, state_path: Path | None = None) -> dict:
         meetings_db.audit(
             conn, actor="route-cmd", meeting_id=meeting_id,
             action="routed",
-            payload=json.dumps({"project": cfg.slug, "sha": res["commit_sha"]}),
+            payload={"project": cfg.slug, "sha": res["commit_sha"]},
         )
         return {"ok": True,
                 "reply": f"Routed to {cfg.slug} @ {res['commit_sha'][:8]}"}
