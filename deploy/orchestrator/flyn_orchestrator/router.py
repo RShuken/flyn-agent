@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .cost import BudgetExceeded, CostTracker
-from .dispatcher import WorkerDispatcher
+from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
 from .reviewer import review as _default_review
 from .state import StateStore
@@ -240,6 +240,19 @@ class TaskRouter:
         except BudgetExceeded:
             self._safe_transition(task_id, current_state, TaskState.COST_PAUSED,
                                   actor="router", reason="budget exceeded")
+            raise
+
+        except WorkerProducedNothing as ex:
+            self._safe_transition(task_id, current_state, TaskState.FAILED,
+                                  actor="dispatcher", reason=str(ex)[:200])
+            self._memory.emit(
+                source="orchestrator",
+                event_type="task_failed",
+                subject=task_id,
+                body=f"Worker silent failure: {ex}",
+                dedup_key=f"orch-{task_id}-silent-failure",
+                importance="warm",
+            )
             raise
 
         except Exception as exc:

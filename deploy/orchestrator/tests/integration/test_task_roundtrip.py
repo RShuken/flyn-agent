@@ -54,10 +54,12 @@ def test_happy_path_task_roundtrip(tmp_path: Path, test_repo: Path):
             check=True,
             capture_output=True,
         )
+        cap = wt / f"{spec.worker_id}.jsonl"
+        cap.write_text('{"type":"message","content":"created hello.py"}\n' * 5)
         return WorkerResult(
             worker_id=spec.worker_id,
             exit_code=0,
-            capture_path=wt / f"{spec.worker_id}.jsonl",
+            capture_path=cap,
             cost_usd=0.01,
             duration_ms=50,
             changed_files=["hello.py"],
