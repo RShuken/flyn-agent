@@ -236,7 +236,7 @@ POST /api/memory/ingest
 - **Daily roll-up is a *summary*, not a concatenation.** Hard caps: ≤2000 chars / ≤8 facts per day. Generated via a cheap-LLM summarization step over the day's cool-tier events.
 - **MemoryRouter does NOT write to Lossless Claw.** Lossless covers Flyn's conversation-turn-level history; orchestrator events flow only through the router. They overlap only when Flyn talks to a user about a task — that's a normal Flyn turn and Lossless captures it as usual.
 - **Dedup keys are namespaced** — `(source, dedup_key)` is the actual key. No cross-source collisions possible.
-- **Hot-tier pins decay.** 24h after task completion, or 72h while task is active, the pin is removed from MEMORY.md. `flyn-orchestrator-daily` heartbeat enforces. Owner can manually pin permanent.
+- **Hot-tier pins decay.** 24h after task completion, or 72h while task is active, the pin is removed from MEMORY.md. `flyn-orchestrator-daily` heartbeat enforces. Owner can mark a pin permanent by calling `POST /api/memory/pin` with `{permanent: true, subject: ...}` — Owner-tier only; the router rejects the flag from other senders. Permanent pins survive decay until explicitly unpinned via `DELETE /api/memory/pin/<subject>`.
 - **Backpressure handling**: Gemini quota miss → local EmbeddingGemma fallback (already configured); Graphiti slow → disk-persisted queue at `~/.flyn/memory/queue/` with replay; orchestrator never blocks.
 - **`passthrough_mode: true`** config flag for migration: router accepts ingest AND also writes via the legacy path. Existing callers (Krisp, Fathom) migrate one at a time. Flag removable when no callers depend on the legacy path.
 - **Prose body discipline**: only prose goes to Graphiti, never raw structured dumps. Preserves retrieval quality per `TOOLS.md`'s hygiene rule.
@@ -421,7 +421,7 @@ Supervisor restart sequence:
 ### Concurrency model
 
 - One orchestrator process; tasks run in parallel `asyncio` (TS: Promise) loops, not OS threads.
-- WorkerDispatcher's per-worker subprocesses are the only OS-level parallelism. Bound by `concurrent_workers_max` config (default 6).
+- WorkerDispatcher's per-worker subprocesses are the only OS-level parallelism. Two caps: `concurrent_tasks_max` (default 4) limits how many tasks are simultaneously past `dispatched`; `concurrent_workers_max` (default 6) limits total live worker subprocesses across all tasks. When the worker cap is hit, new workers queue (task stays in `running`); when the task cap is hit, new ingress queues at `decomposed` until a slot frees.
 - Reviewer for task T dispatches *after* T's workers settle — never in parallel.
 - MemoryRouter writes are async + queued; orchestrator never blocks on them.
 - Each channel adapter runs in its own task loop; ingress is non-blocking.
@@ -447,7 +447,7 @@ Flyn drives all four via curl from exec — **NOT MCP**. Pattern proven in postm
 |---|---|
 | **Graphiti REST @ 8100** | MemoryRouter writes here; orchestrator never writes directly. `group_id=flyn` stays. |
 | **OL Wiki @ 8200** | `OLWikiPMAdapter`. Dev tasks against the OL repo mirror state here AND to Linear. OL wiki remains the project HQ per `PROJECTS.md`. |
-| **Linear API** | `LinearPMAdapter` wraps existing `linear_sync.py`. Mirrors **warm+ events only** — never cool/cold. **One Linear issue per *task*, not per worker** — critical to stay under `USAGE_LIMIT`. |
+| **Linear API** | `LinearPMAdapter` wraps existing `linear_sync.py`. Mirrors **warm+ events only** — never cool/cold. **One Linear issue per *task*, not per worker** — critical to stay under `USAGE_LIMIT`. Tasks that generate multiple PRs over their lifecycle add a *comment* per PR to the existing issue; no new issue is created until `task_id` itself changes. |
 | **@flyn_4c_bot Telegram** | `TelegramChannelAdapter` wraps existing bot. Adds per-project topics (`#dev-<slug>`); inherits behavior from `deploy-telegram-forum.md`. |
 | **Fathom pipeline** | New `FathomMemoryAdapter` — meeting summaries → MemoryRouter as `event=meeting_summary, importance=warm`. |
 | **Krisp webhook @ /api/meetings/krisp** | Replace direct Graphiti writes with MemoryRouter ingest. |
@@ -869,7 +869,7 @@ Plus policy-as-data extension points:
 | Workflow | `workflows/<name>.yaml` + `prompts/<name>/*.md` | drop in YAML + prompts |
 | Risk-tier rules (ops) | `workflows/ops/risk-rules.yaml` | edit YAML, not code |
 
-**Test gate**: adding a synthetic `test-workflow.yaml` + an empty test backend MUST not require editing the orchestrator package. Integration test enforces.
+**Test gate**: adding a synthetic `test-workflow.yaml` + an empty test backend MUST not require editing any file under `flyn-orchestrator/src/` (the orchestrator core code). Only `workflows/`, `prompts/`, `adapters/`, `backends/`, and config files may be touched. Integration test enforces this directory invariant.
 
 ### State machine
 
@@ -879,8 +879,11 @@ Plus policy-as-data extension points:
 
 ### Approval gates — declarative only
 
-- Gates in workflow YAML under `approval_gates:`.
-- Evaluator is one small library: `gates/evaluate(gate_spec, sender, role_tier, ctx) → Allowed | Denied | RequiresOwner`. ~100 lines max.
+- Gates in workflow YAML under `approval_gates:`. Each gate has a `name` (must match a state in the flow), a `who` (role tier or named condition like `teammate_owns_repo`), and an optional `when` (predicate: `always` default, or `condition: spend > budget` etc.).
+- Two semantics, distinguished by the `when` field:
+  - `when: always` — gate is asked every time the flow reaches it. Default for plan_approval, human_approval.
+  - `when: condition: <expr>` — gate is *conditional*; only asked when the expression evaluates true. Default for spend_over_cap.
+- Evaluator is one small library: `gates/evaluate(gate_spec, sender, role_tier, ctx) → Allowed | Denied | RequiresOwner | NotApplicable`. ~150 lines max.
 - **No `if requester.id == ...` in code.** Person-specific logic is a policy bug.
 
 ### Watchdog triage
