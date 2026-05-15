@@ -13,7 +13,7 @@ from .worktree import WorktreeManager
 from .dispatcher import WorkerDispatcher
 from .memory import MemoryEmitter
 from .router import TaskRouter
-from .types import InboundTaskRequest, TaskRecord, TaskState
+from .types import ApprovalDecision, InboundTaskRequest, TaskRecord, TaskState
 from .workflows import load_workflows_dir
 from .adapters.channels.telegram import TelegramChannelAdapter
 from .adapters.notify.stdout import StdoutNotifyAdapter
@@ -106,6 +106,17 @@ def build_app(
     def run_task_route(task_id: str) -> TaskRecord:
         """Explicit run trigger — used by tests; production also routes through this."""
         return task_router.run_task(task_id)
+
+    @app.post("/api/tasks/{task_id}/approve")
+    def approve(task_id: str, decision: ApprovalDecision) -> TaskRecord:
+        """Accept or reject a task pending human approval."""
+        t = store.get_task(task_id)
+        if not t:
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        try:
+            return task_router.handle_approval(task_id, decision)
+        except NotImplementedError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel(task_id: str) -> dict[str, Any]:
