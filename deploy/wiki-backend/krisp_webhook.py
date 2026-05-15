@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import sqlite3
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from slowapi import Limiter
@@ -39,6 +40,85 @@ def _check_token(provided: str | None) -> bool:
     if not provided:
         return False
     return hmac.compare_digest(provided, expected)
+
+
+def _get(d: dict, *keys: str, default: Any = None) -> Any:
+    """Try several keys; first non-None wins. Tolerates Krisp's
+    not-yet-fully-known field naming variants."""
+    for k in keys:
+        if k in d and d[k] is not None:
+            return d[k]
+    return default
+
+
+def _extract_meeting_fields(payload: dict) -> dict[str, Any]:
+    """Best-effort map from Krisp's payload to our meetings columns.
+
+    Defensive: every field is optional. Unknown shapes leave columns NULL.
+    The transcript_text / notes_text / outline_text / key_points_text
+    columns are only populated when their respective event-type sub-object
+    is present, so multiple events for the same meeting merge cleanly.
+    """
+    meeting = payload.get("meeting") or {}
+    out: dict[str, Any] = {
+        "meeting_id": _get(meeting, "id", "meeting_id", "uuid"),
+        "title": _get(meeting, "title", "name"),
+        "started_at": _get(meeting, "started_at", "start_time", "start"),
+        "ended_at": _get(meeting, "ended_at", "end_time", "end"),
+        "duration_seconds": _get(meeting, "duration_seconds", "duration"),
+        "meeting_url": _get(meeting, "url", "link", "meeting_url"),
+        "attendees": json.dumps(_get(meeting, "attendees", "participants", default=[])),
+    }
+    # Content sub-objects — each event may carry one of these.
+    if "transcript" in payload and isinstance(payload["transcript"], dict):
+        out["transcript_text"] = _get(payload["transcript"], "text", "content", "body")
+    if "notes" in payload and isinstance(payload["notes"], dict):
+        out["notes_text"] = _get(payload["notes"], "text", "content", "body")
+    if "outline" in payload and isinstance(payload["outline"], dict):
+        out["outline_text"] = _get(payload["outline"], "text", "content", "body")
+    if "key_points" in payload and isinstance(payload["key_points"], dict):
+        out["key_points_text"] = _get(payload["key_points"], "text", "content", "body")
+    return out
+
+
+def _upsert_meeting(conn: sqlite3.Connection, fields: dict[str, Any]) -> None:
+    """UPSERT keyed on meeting_id. NULL incoming values do NOT overwrite
+    existing populated values (so a later 'notes' event doesn't clobber
+    the title set by an earlier 'transcript' event)."""
+    meeting_id = fields.get("meeting_id")
+    if not meeting_id:
+        return  # nothing to do without an ID
+
+    existing = conn.execute(
+        "SELECT * FROM meetings WHERE meeting_id = ?", (meeting_id,)
+    ).fetchone()
+
+    if existing is None:
+        cols = [k for k, v in fields.items() if v is not None]
+        vals = [fields[k] for k in cols]
+        placeholders = ",".join(["?"] * len(cols))
+        conn.execute(
+            f"INSERT INTO meetings ({','.join(cols)}) VALUES ({placeholders})",
+            vals,
+        )
+        return
+
+    # Merge: only set columns where existing is NULL/empty and incoming is not.
+    set_parts = []
+    set_vals: list[Any] = []
+    for k, v in fields.items():
+        if k == "meeting_id" or v is None:
+            continue
+        if existing[k] in (None, "", "[]"):
+            set_parts.append(f"{k} = ?")
+            set_vals.append(v)
+    if set_parts:
+        set_parts.append("updated_at = datetime('now')")
+        set_vals.append(meeting_id)
+        conn.execute(
+            f"UPDATE meetings SET {', '.join(set_parts)} WHERE meeting_id = ?",
+            set_vals,
+        )
 
 
 def _event_id_from(payload: dict, raw_body: bytes) -> str:
@@ -84,16 +164,28 @@ async def receive_krisp(
     # transactional partner.
     try:
         conn.execute(
-            "INSERT INTO meeting_events (event_id, raw_payload) VALUES (?, ?)",
-            (event_id, raw.decode("utf-8", errors="replace")),
+            "INSERT INTO meeting_events (event_id, source, event_type, "
+            "meeting_id, raw_payload) VALUES (?, ?, ?, ?, ?)",
+            (
+                event_id,
+                "krisp",
+                str(payload.get("event_type") or payload.get("type") or ""),
+                str((payload.get("meeting") or {}).get("id") or ""),
+                raw.decode("utf-8", errors="replace"),
+            ),
         )
         duplicate = False
     except sqlite3.IntegrityError:
         duplicate = True
 
+    if not duplicate:
+        fields = _extract_meeting_fields(payload)
+        _upsert_meeting(conn, fields)
+
     meetings_db.audit(
         conn, actor="krisp-webhook",
         action="event_received" if not duplicate else "event_duplicate",
+        meeting_id=(payload.get("meeting") or {}).get("id"),
         payload={"event_id": event_id},
     )
 
