@@ -51,6 +51,10 @@ curl -sS "https://api.telegram.org/bot$(python3 -c 'import json; print(json.load
 
 # 8. Linear sync state
 sqlite3 ~/.openclaw/data/ol-pm.db "SELECT COUNT(*) AS synced, (SELECT COUNT(*) FROM questions) AS total FROM questions WHERE linear_issue_id IS NOT NULL"
+
+# 9. Meeting pipeline
+sqlite3 ~/.openclaw/data/flyn-meetings.db "SELECT status, COUNT(*) FROM meetings GROUP BY status" 2>/dev/null || echo "(no meetings DB yet)"
+launchctl list | grep meeting-categorize
 ```
 
 Expected results: all green, **~73 of 124** Linear issues synced (see "Known issues" below).
@@ -67,6 +71,8 @@ Expected results: all green, **~73 of 124** Linear issues synced (see "Known iss
 | MCP server | `ol-wiki` registered in Claude Code (`claude mcp list` → ✓ Connected, 8 tools) |
 | Flyn-on-4C | Telegram `@flyn_4c_bot`, openclaw gateway, workspace at `~/.openclaw/workspace/` |
 | Source repos | `/Users/4c/AI/flyn-agent` (private; this repo) · `/Users/4c/AI/openlit/OL_LearningPathways_Knowledgebase` (private) |
+| Krisp webhook endpoint | https://4cs-mac-mini.tailc7d8af.ts.net/api/meetings/krisp |
+| Meeting inbox DB | `~/.openclaw/data/flyn-meetings.db` |
 
 ---
 
@@ -109,6 +115,8 @@ Rebecca's "Lesson Sharing within Pearl Platform.mp4" (27MB) explains the co-brow
 ```
 
 Then update question **I.13** with the concrete findings.
+
+> **Note (2026-05-14):** the new Krisp webhook pipeline (`POST /api/meetings/krisp`) handles *new* meetings automatically — transcripts, routing, Graphiti ingestion, and operator pings all happen without manual triage. Pearl's existing 27MB recording remains a one-off manual job (this section's commands) since it pre-dates Krisp recording.
 
 ### 3. Eric Telegram onboarding
 

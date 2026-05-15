@@ -143,6 +143,37 @@ Expect: 201 with new decision ID, and a Telegram DM to both Ryan and Beth.
 
 ---
 
+## Meeting pipeline (Krisp webhook + nightly categorizer)
+
+**Services in the pipeline:**
+- `ai.flyn.ol-wiki-backend` (existing) — hosts `POST /api/meetings/krisp`
+- `ai.flyn.pulse.meeting-categorize` (new) — nightly 02:30
+
+**State:**
+- `~/.openclaw/data/flyn-meetings.db` — meeting_events, meetings, meeting_audit
+- `~/.openclaw/state/last-review-list.json` — morning digest's index→meeting_id map
+- `~/.openclaw/openclaw.json` `krisp.webhookToken` — shared secret with Krisp
+
+### Common failures and fixes
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `POST /api/meetings/krisp` returns 401 | `FLYN_KRISP_TOKEN` env var not loaded into the wiki-backend launchd job | Edit `~/Library/LaunchAgents/ai.flyn.ol-wiki-backend.plist` `EnvironmentVariables` dict; `launchctl unload && load` |
+| Krisp dashboard shows webhook errors | Tailscale Funnel down, or wiki-backend not running | `tailscale funnel status`; `launchctl list \| grep ol-wiki-backend` |
+| Categorizer never routes anything | `claude` not on PATH for the launchd context, or no project rules match | Run `bash deploy/cron/scripts/meeting-categorize.sh` by hand and read the log; check `which claude` |
+| Meeting stuck in 'classifying' | Categorizer crashed mid-loop | Auto-revert kicks in next run; or run `python3 deploy/pm/meeting_categorizer.py --unstick` |
+| Telegram `/route N skip` errors with "no meeting at index N" | Stale state file (older than today's digest) | Re-run morning digest to refresh `~/.openclaw/state/last-review-list.json` |
+| Wrong project routing decision | Rules too loose, or LLM hallucinated | Manual `git revert` of the meeting commit; mark DB row `status='dropped'`; tighten rules in project config |
+
+### Disaster: full restore
+
+1. Restore `flyn-meetings.db` from the nightly backup pulse (`~/Backups/flyn/`).
+2. `cp deploy/launchd/ai.flyn.pulse.meeting-categorize.plist ~/Library/LaunchAgents/ && launchctl load ...`
+3. Re-enter `krisp.webhookToken` into `~/.openclaw/openclaw.json` (rotate by editing Krisp's webhook config to match).
+4. Reload wiki-backend.
+
+---
+
 ## Common failure modes during DR
 
 | Symptom | Cause | Fix |
