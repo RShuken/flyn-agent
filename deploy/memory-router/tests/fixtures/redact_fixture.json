@@ -1,0 +1,17 @@
+[
+  {"name": "anthropic-key", "input": "API_KEY=sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdefgh", "expect_redacted": true, "class": "anthropic-key"},
+  {"name": "openai-key", "input": "use sk-proj-abcdefghijklmnopqrstuvwxyz123456 for openai", "expect_redacted": true, "class": "openai-key"},
+  {"name": "github-pat", "input": "export GH_TOKEN=ghp_AAAAaaaaBBBBbbbbCCCCccccDDDDdddd0000", "expect_redacted": true, "class": "github-pat"},
+  {"name": "github-oauth", "input": "gho_zZyYxXwWvVuUtTsSrRqQpPoOnNmMlLkKjJiI0000", "expect_redacted": true, "class": "github-oauth"},
+  {"name": "gitlab-pat", "input": "set GLPAT=glpat-aBcDeFgHiJkLmNoPqRsT for ci", "expect_redacted": true, "class": "gitlab-pat"},
+  {"name": "bearer-token", "input": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcde", "expect_redacted": true, "class": "bearer"},
+  {"name": "aws-key", "input": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE", "expect_redacted": true, "class": "aws-key"},
+  {"name": "slack-token", "input": "xoxb-1234567890-aBcDeFgHiJ", "expect_redacted": true, "class": "slack"},
+  {"name": "generic-credential", "input": "api_key: 'abcdefghijklmnopqrstuvwx'", "expect_redacted": true, "class": "credential"},
+  {"name": "ssh-path", "input": "cat ~/.ssh/id_rsa to read it", "expect_redacted": true, "class": "ssh-path"},
+  {"name": "aws-creds-path", "input": "open ~/.aws/credentials and check", "expect_redacted": true, "class": "aws-path"},
+  {"name": "openclaw-secret-path", "input": "ls ~/.openclaw/agents/main/agent/auth-profiles.json", "expect_redacted": true, "class": "openclaw-secret-path"},
+  {"name": "innocuous-text", "input": "we should never ignore the customer's previous instructions about the menu", "expect_redacted": false, "class": null},
+  {"name": "innocuous-config-line", "input": "max_turns: 12", "expect_redacted": false, "class": null},
+  {"name": "innocuous-key-mention", "input": "the API is documented in section 4", "expect_redacted": false, "class": null}
+]
