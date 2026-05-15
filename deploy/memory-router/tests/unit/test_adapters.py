@@ -64,3 +64,38 @@ def test_cold_adapter_multiple_writes_append(tmp_path):
                              subject=f"T-0001/w-001/seq-{i}", body=f"chunk-{i}",
                              dedup_key=f"k-{i}"))
     assert len(idx.read_text().strip().splitlines()) == 3
+
+
+from flyn_memory_router.adapters.lesson import LessonKnowledgeAdapter
+
+
+def test_lesson_adapter_writes_new_file(tmp_path):
+    a = LessonKnowledgeAdapter(knowledge_dir=tmp_path)
+    e = InboundEvent(
+        source="orchestrator", event_type="lesson_learned",
+        subject="oauth-refresh-flaky-on-headless",
+        body="When `claude -p` ran for >2h, OAuth refresh failed silently. Mitigation: set ANTHROPIC_API_KEY as fallback.",
+        dedup_key="lesson-oauth-refresh-2026-05-15",
+    )
+    res = a.write(e)
+    assert res.ok is True
+    files = list(tmp_path.glob("*-oauth-refresh-flaky-on-headless.md"))
+    assert len(files) == 1
+    text = files[0].read_text()
+    assert "name: oauth-refresh-flaky-on-headless" in text
+    assert "ANTHROPIC_API_KEY" in text
+
+
+def test_lesson_adapter_dedups_by_subject(tmp_path):
+    a = LessonKnowledgeAdapter(knowledge_dir=tmp_path)
+    e1 = InboundEvent(source="x", event_type="lesson_learned",
+                      subject="some-lesson", body="first version",
+                      dedup_key="k1")
+    e2 = InboundEvent(source="x", event_type="lesson_learned",
+                      subject="some-lesson", body="updated version",
+                      dedup_key="k2")
+    a.write(e1)
+    a.write(e2)
+    files = list(tmp_path.glob("*-some-lesson.md"))
+    assert len(files) == 1
+    assert "updated version" in files[0].read_text()
