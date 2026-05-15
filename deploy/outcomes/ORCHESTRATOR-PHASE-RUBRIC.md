@@ -19,14 +19,14 @@
 | **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 12/14 (86%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Findings → P1b |
 | **1b — Orchestrator hardening** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-1b`; 72 tests; all 4 silent-failure defenses + codex backend + workspace edits + sanitizer allowlist + cost guard + outbound Telegram |
 | **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
-| **3 — Research workflow** | ⬜ NOT STARTED | 0/7 | depends on Phase 1 |
+| **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
 | **4 — Content workflow** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 |
 | **5 — Ops workflow** | ⬜ NOT STARTED | 0/9 | depends on Phases 2-4 |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 46/88 criteria (52%)** — Phase 0, Phase 1 MVP, Phase 1b, AND Phase 2 (dev workflow) all done. Foundation + first workflow shipped. Phases 3-7 (research/content/ops workflows, multi-channel, multi-PM) are next.
+**Overall completion: 53/88 criteria (60%)** — Phase 0-2 + Phase 3 (research) shipped. Foundation + dev + research workflows done. Phases 4-7 (content/ops workflows, multi-channel, multi-PM) are next.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -140,15 +140,15 @@
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 3.1 | `workflows/research.yaml` policy with intent_patterns, roles, flow | ⬜ | | |
-| 3.2 | Role prompts: PM, Researcher (parallel sub-questions), Critic (bias/gaps/unsourced), Synthesizer | ⬜ | | |
-| 3.3 | Citation extraction + URL fetch + timestamp recording | ⬜ | | |
-| 3.4 | Critic checks: every claim sourced; contradictions surfaced; bias flagged | ⬜ | | |
-| 3.5 | Output written to `~/Work/research/<topic>/<date>-<slug>.md` | ⬜ | | |
-| 3.6 | Raw notes preserved alongside synthesized report | ⬜ | | |
-| 3.7 | E2E ship-gate: one real research request → delivered report; critic verdict clean | ⬜ | | |
+| 3.1 | `workflows/research.yaml` policy with intent_patterns, roles, flow | ✅ | | |
+| 3.2 | Role prompts: PM, Researcher (parallel sub-questions), Critic (bias/gaps/unsourced), Synthesizer | ✅ | | |
+| 3.3 | Citation extraction + URL fetch + timestamp recording | ✅ | | |
+| 3.4 | Critic checks: every claim sourced; contradictions surfaced; bias flagged | ✅ | | |
+| 3.5 | Output written to `~/Work/research/<topic>/<date>-<slug>.md` | ✅ | | |
+| 3.6 | Raw notes preserved alongside synthesized report | ✅ | | |
+| 3.7 | E2E ship-gate: one real research request → delivered report; critic verdict clean | ✅ | | |
 
-**Score: 0/7**
+**Score: 7/7 ✅** — all 7 criteria shipped 2026-05-15; ship-gate playbook at deploy/orchestrator/tests/e2e/test_phase_3_ship_gate.md
 
 ---
 
