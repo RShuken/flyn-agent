@@ -16,17 +16,19 @@
 | Phase | Status | Score | Ship-gate |
 |---|---|---|---|
 | **0 — MemoryRouter** | ✅ SHIPPED + MERGED 2026-05-15 | 11/12 | PR #1 merged at `03f42a0` on main; one 🟡 on manual Telegram-DM step |
-| **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 12/14 (86%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Findings → P1b |
+| **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 13/14 (93%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Only Watchdog (1.8) still unbuilt; deferred until real stuck-worker incident |
 | **1b — Orchestrator hardening** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-1b`; 72 tests; all 4 silent-failure defenses + codex backend + workspace edits + sanitizer allowlist + cost guard + outbound Telegram |
 | **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
 | **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
 | **4 — Content workflow** | ✅ SHIPPED 2026-05-15 | 8/8 | branch `feat/orchestrator-phase-4`; 161 tests; content.yaml + 5 prompts + content.py + formatting.py + router branch + send-via-X approval (Telegram MVP) |
-| **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-5`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation |
+| **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 8/9 + 1 🟡 | PR #7 merged at `e683d86`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation. 🟡 = ship-gate Procedure C awaits Ryan-on-live |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
 | **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 70/88 criteria (80%)** — Phase 0-5 shipped. Foundation + dev + research + content + ops workflows all done. Phases 6-7 (multi-channel, multi-PM) remain; both blocked on external setup.
+**Overall completion: 70/87 criteria (80%)** — Phase 0-5 shipped. Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines.
+
+Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 3 Phase 7 criteria (7.1 OLWikiPMAdapter, 7.2 conformance, 7.5 generic webhook PMAdapter) AND 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -66,22 +68,22 @@
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 1.1 | `flyn-orchestrator` launchd service running on `:8300`, `GET /api/health` ok | ⬜ | (not built) | Build service skeleton |
-| 1.2 | SQLite `state.db` schema: `tasks`, `task_events`, `workers`, `worktrees`, `reviews`, `approvals`, `cost_ledger`, `channel_inbox`, `audit_log` | ⬜ | | Migration script |
-| 1.3 | `TaskRouter` accepts inbound from REST/CLI, authorizes per role tier, decomposes via PM-role LLM | ⬜ | | Build |
-| 1.4 | `WorkerDispatcher` spawns `claude -p --output-format stream-json` subprocess; stream tee'd to capture file + parsed live | ⬜ | | `backends/claude-p.py` |
-| 1.5 | `backends/codex-exec.py` switchable backend works for the same `WorkerHandle` interface | ⬜ | | |
-| 1.6 | `WorktreeManager` allocates worktree per task; locks claimed files in `agent_locks/` | ⬜ | | |
-| 1.7 | Fresh-context `Reviewer` invocation: separate `claude -p` per review with diff-only context, structured `ReviewFindings` JSON output | ⬜ | | The differentiator vs. community tools |
-| 1.8 | `Watchdog` tails capture stream, runs cheap-LLM triage (`gemma4:e4b`), classifies FINE/NEEDS_NUDGE/STUCK/DONE/ESCALATE | ⬜ | | Sanitized from `johba37/claude-code-supervisor` |
-| 1.9 | `CostTracker` parses `usage` events from stream-json + Codex JSON; hard cap aborts worker | ⬜ | | |
-| 1.10 | `MemoryEmitter` thin client POSTs every significant event to `:8400/api/memory/ingest` | ⬜ | | |
-| 1.11 | 3 Phase-1 adapters: `TelegramChannelAdapter` (wraps `@flyn_4c_bot`), `LinearPMAdapter`, `StdoutNotifyAdapter` — all pass adapter contract conformance suite | ⬜ | | |
-| 1.12 | Workspace edits to `IDENTITY.md`, `AGENTS.md`, `CONTACTS.md`, `PROJECTS.md`, `TOOLS.md`, `BOOTSTRAP.md` — additive only, under post-compaction-survival headings | ⬜ | | Including authorization model + tool-process-not-peer rule |
-| 1.13 | E2E ship-gate: synthetic task → claude-p worker → captured stream-json → fresh reviewer → deliverable + Telegram report. Repeated with codex backend. | ⬜ | | The Phase 1 ship gate |
+| 1.1 | `flyn-orchestrator` launchd service running on `:8300`, `GET /api/health` ok | ✅ | `flyn_orchestrator/server.py`; PR #2 merged at `34382ca` | — |
+| 1.2 | SQLite `state.db` schema: `tasks`, `task_events`, `workers`, `worktrees`, `reviews`, `approvals`, `cost_ledger`, `channel_inbox`, `audit_log` | ✅ | `state.py` schema; `audit_log` added in Phase 5 | — |
+| 1.3 | `TaskRouter` accepts inbound from REST/CLI, authorizes per role tier, decomposes via PM-role LLM | ✅ | `router.py:TaskRouter.accept` + role-tier gating via `sender_role`; PM-LLM call via workflow PM prompts | — |
+| 1.4 | `WorkerDispatcher` spawns `claude -p --output-format stream-json` subprocess; stream tee'd to capture file + parsed live | ✅ | `dispatcher.py` + `backends/claude_p.py`; tested in `test_backends.py` | — |
+| 1.5 | `backends/codex-exec.py` switchable backend works for the same `WorkerHandle` interface | ✅ | `backends/codex_exec.py`; shipped via Phase 1b.5 | — |
+| 1.6 | `WorktreeManager` allocates worktree per task; locks claimed files in `agent_locks/` | ✅ | `worktree.py` + `locks.py`; idempotency hardened in Phase 1b.3 | — |
+| 1.7 | Fresh-context `Reviewer` invocation: separate `claude -p` per review with diff-only context, structured `ReviewFindings` JSON output | ✅ | `reviewer.py` invokes a separate `claude -p` per review; `test_reviewer.py` covers | — |
+| 1.8 | `Watchdog` tails capture stream, runs cheap-LLM triage (`gemma4:e4b`), classifies FINE/NEEDS_NUDGE/STUCK/DONE/ESCALATE | ⬜ | | Not yet built — sanitize from `johba37/claude-code-supervisor` (deferred indefinitely; no priority signal yet) |
+| 1.9 | `CostTracker` parses `usage` events from stream-json + Codex JSON; hard cap aborts worker | ✅ | `cost.py:CostTracker` + Phase 1b.8 wired mid-run abort into `claude_p.py` | — |
+| 1.10 | `MemoryEmitter` thin client POSTs every significant event to `:8400/api/memory/ingest` | ✅ | `memory.py:MemoryEmitter`; called throughout router on every state transition | — |
+| 1.11 | 3 Phase-1 adapters: `TelegramChannelAdapter` (wraps `@flyn_4c_bot`), `LinearPMAdapter`, `StdoutNotifyAdapter` — all pass adapter contract conformance suite | ✅ | `adapters/channels/telegram.py` + `adapters/pm/linear.py` + `adapters/notify/stdout.py`; outbound wiring shipped in Phase 1b.9 | — |
+| 1.12 | Workspace edits to `IDENTITY.md`, `AGENTS.md`, `CONTACTS.md`, `PROJECTS.md`, `TOOLS.md`, `BOOTSTRAP.md` — additive only, under post-compaction-survival headings | ✅ | Shipped via Phase 1b.6 (3-tier auth model + tool-process-not-peer rule) | — |
+| 1.13 | E2E ship-gate: synthetic task → claude-p worker → captured stream-json → fresh reviewer → deliverable + Telegram report. Repeated with codex backend. | ✅ | Phase 1 verification 2026-05-15 03:29 — T-0001 round-trip with verify-marker.txt; codex round-trip in Phase 1b.5 | — |
 | 1.14 | RESUME-HERE.md doc-drift fix verified shipped (Eric: CEO, Ryan: CTO/tech lead) | ✅ | Shipped in T24 of Phase 0 | — |
 
-**Score: 12/14 ✅** (post-merge re-verified 2026-05-15; the 2 ⬜s are Watchdog and workspace edits, both moved into Phase 1b)
+**Score: 13/14 ✅** — only 1.8 (Watchdog) remains; deferred indefinitely until a real stuck-worker incident provides a priority signal
 
 ---
 
@@ -206,7 +208,7 @@
 | 6.7 | Email-based prompt injection detection (per spec §7 injection-detector) running on inbound bodies | ⬜ | | |
 | 6.8 | E2E: round-trip Google Chat → orchestrator → response; round-trip email via flynn@getcora.io | ⬜ | | |
 
-**Score: 8/8 ✅** — all 8 criteria shipped 2026-05-15; ship-gate playbook at deploy/orchestrator/tests/e2e/test_phase_4_ship_gate.md — blocked on external DNS/Workspace setup until Ryan provisions.
+**Score: 0/8 ⬜** — not started. Blocked on external setup (Google Workspace OAuth + DNS provisioning for `getcora.io`). Some criteria (6.3 EmailChannelAdapter code, 6.5 SPF/DKIM verification logic, 6.6 subject-line tagging docs, 6.7 injection-detection code) are autonomously buildable today against stub IMAP/SMTP and would unblock the moment Ryan provisions DNS.
 
 ---
 
@@ -243,7 +245,7 @@ These criteria are not phase-bound but should be satisfied as phases ship.
 | X.8 | All local services bind to `127.0.0.1` (not `0.0.0.0`) | ✅ | Verified for 8100, 8200, 8400 | Will recheck for 8300 in Phase 1 |
 | X.9 | Cron registrations idempotent (`|| echo "(already registered)"`) | ✅ | `register-flyn-crons.sh` pattern | |
 
-**Score: 4 ✅ + 3 🟡 + 2 ⬜ = 4/9 done**
+**Score: 4 ✅ + 2 🟡 + 2 ⬜ + 1 n/a = 4/8 done**
 
 ---
 
@@ -286,4 +288,4 @@ Expected: all 11 ✅ rows for Phase 0 verified as still true; the 🟡 row (0.12
 
 ---
 
-*Last edited: 2026-05-15 by Claude Opus 4.7 during overnight Phase 1 prep run.*
+*Last edited: 2026-05-16 by Claude Opus 4.7 — rubric audit after Phase 5 + Phase 2c ship. Fixed: Phase 1 score (12→13/14, all rows ✅ with evidence except Watchdog), Phase 5 aggregate inconsistency (9/9 → 8/9 + 1 🟡), Phase 6 score-line copy-paste bug (8/8 ✅ → 0/8 ⬜), cross-cutting count (3 🟡 → 2 🟡), overall denominator (88 → 87 after n/a exclusion).*
