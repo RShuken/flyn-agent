@@ -19,7 +19,6 @@ from .adapters import ChannelRegistry
 from .cost import BudgetExceeded, CostTracker
 from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
-from .pr import PRError
 from .reviewer import review as _default_review
 from .state import StateStore
 from .workflows import Workflow, match_intent
@@ -34,38 +33,6 @@ from .types import (
 )
 from .worktree import WorktreeManager
 
-
-def _format_pr_body(task: TaskRecord, plan: dict, review: ReviewFindings) -> str:
-    icon = "✅" if review.passed else "⚠️"
-    findings_md = "\n".join(
-        f"- {'🔴' if f.severity == 'critical' else '🟡' if f.severity == 'important' else '🔵'} "
-        f"**{f.severity}/{f.area}:** {f.note}"
-        for f in review.findings
-    ) or "_No findings._"
-    files_md = "\n".join(f"- `{f}`" for f in plan.get("estimated_files_touched", []))
-    return f"""## {icon} {plan.get('title', task.intent[:60])}
-
-**Task ID:** {task.task_id}
-**Requester:** {task.sender_identifier} ({task.sender_role})
-
-### Rationale
-{plan.get('rationale', '(none)')}
-
-### Files touched
-{files_md or '(none listed)'}
-
-### Reviewer verdict
-{review.summary}
-
-### Findings
-{findings_md}
-
-### Verification
-{plan.get('verification', '(none)')}
-
----
-🤖 Built by Flyn (orchestrator). Builder prompt: see `~/.flyn/orchestrator/workspaces/{task.task_id}/`.
-"""
 
 
 class TaskRouter:
@@ -290,13 +257,15 @@ class TaskRouter:
 
             # 13. Branch on workflow: dev gets PR phase; default goes straight to DELIVERABLE_READY
             if t.workflow == "dev":
-                return self._run_dev_pr_phase(
+                from . import dev_phase
+                return dev_phase.run_pr_phase(
                     task_id=task_id,
                     task=t,
                     plan_obj=plan_obj,
                     findings=findings,
                     worktree_path=worktree_path,
                     repo_path=repo_path,
+                    services=self._make_services(),
                 )
             else:
                 self._transition(task_id, current_state, TaskState.DELIVERABLE_READY,
@@ -346,93 +315,6 @@ class TaskRouter:
                 importance="warm",
             )
             raise
-
-    # ------------------------------------------------------------------
-    # Dev-workflow PR phase
-    # ------------------------------------------------------------------
-
-    def _run_dev_pr_phase(
-        self,
-        *,
-        task_id: str,
-        task: TaskRecord,
-        plan_obj: dict,
-        findings: ReviewFindings,
-        worktree_path: Path,
-        repo_path: Path,
-    ) -> TaskRecord:
-        """Push branch, open PR, transition to FINAL_APPROVAL_PENDING.
-
-        Falls back to DELIVERABLE_READY (Phase 1 MVP terminal) on push or
-        PR-create failure so a dev workflow without origin auth still ships.
-        """
-        branch = f"flyn/{task_id}"
-
-        # --- 1. Push branch ---
-        try:
-            subprocess.run(
-                ["git", "push", "-u", "origin", branch],
-                cwd=str(worktree_path),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            self._memory.emit(
-                source="orchestrator",
-                event_type="pr_push_failed",
-                subject=task_id,
-                body=f"git push failed: {(e.stderr or '').strip()[:200]}",
-                dedup_key=f"orch-{task_id}-push-fail",
-                importance="warm",
-            )
-            self._safe_transition(task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
-                                  actor="router", reason="push failed; falling back to deliverable_ready")
-            self._notify_originating_channel(self._store.get_task(task_id), findings)
-            return self._store.get_task(task_id)
-
-        # --- 2. Create PR ---
-        body = _format_pr_body(task, plan_obj, findings)
-        title = (plan_obj or {}).get("title") or task.intent[:60]
-        try:
-            from .pr import create_pr
-            pr_url = create_pr(
-                repo_path=Path(repo_path),
-                title=title,
-                body=body,
-                base="main",
-                head=branch,
-            )
-        except PRError as e:
-            self._memory.emit(
-                source="orchestrator",
-                event_type="pr_create_failed",
-                subject=task_id,
-                body=f"gh pr create failed: {str(e)[:200]}",
-                dedup_key=f"orch-{task_id}-pr-fail",
-                importance="warm",
-            )
-            self._safe_transition(task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
-                                  actor="router", reason="PR create failed; falling back to deliverable_ready")
-            self._notify_originating_channel(self._store.get_task(task_id), findings)
-            return self._store.get_task(task_id)
-
-        # --- 3. Store PR metadata, transition, notify ---
-        self._store.update_task_payload(task_id, {"pr_url": pr_url, "branch": branch})
-        self._safe_transition(task_id, TaskState.REVIEWED, TaskState.FINAL_APPROVAL_PENDING,
-                              actor="router", reason=f"PR {pr_url} opened")
-        self._memory.emit(
-            source="orchestrator",
-            event_type="pr_opened",
-            subject=task_id,
-            body=f"PR opened: {pr_url}",
-            dedup_key=f"orch-{task_id}-pr",
-            importance="warm",
-        )
-        # Re-fetch so notify has the updated payload (pr_url, branch)
-        updated_task = self._store.get_task(task_id)
-        self._notify_originating_channel(updated_task, findings, pr_url=pr_url)
-        return updated_task
 
     # ------------------------------------------------------------------
     # Research-workflow phase
@@ -526,53 +408,8 @@ class TaskRouter:
             return content_phase.handle_approval(task, decision, self._make_services())
 
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "dev":
-            if not decision.approved:
-                self._safe_transition(
-                    task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.CANCELLED,
-                    actor=decision.approver,
-                    reason=decision.reason or "rejected",
-                )
-                return self._store.get_task(task_id)
-
-            # Merge the PR
-            pr_url = (task.raw_payload or {}).get("pr_url")
-            if pr_url:
-                from .pr import merge_pr, pr_number_from_url
-                try:
-                    pr_num = pr_number_from_url(pr_url)
-                    repo_path = self._repo_path_for_workflow(task.workflow)
-                    merged = merge_pr(repo_path=Path(repo_path), pr_number=pr_num)
-                except Exception:
-                    merged = False
-
-                if merged:
-                    self._safe_transition(
-                        task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.COMPLETED,
-                        actor=decision.approver,
-                        reason=f"PR #{pr_num} merged",
-                    )
-                    self._memory.emit(
-                        source="orchestrator",
-                        event_type="pr_merged",
-                        subject=task_id,
-                        body=f"PR #{pr_num} merged",
-                        dedup_key=f"orch-{task_id}-merged",
-                        importance="warm",
-                    )
-                else:
-                    self._safe_transition(
-                        task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.FAILED,
-                        actor=decision.approver,
-                        reason="merge failed",
-                    )
-            else:
-                # No PR URL stored (fallback path that still ended up at FINAL_APPROVAL_PENDING)
-                self._safe_transition(
-                    task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.COMPLETED,
-                    actor=decision.approver,
-                    reason="approved (no PR; MVP fallback)",
-                )
-            return self._store.get_task(task_id)
+            from . import dev_phase
+            return dev_phase.handle_approval(task, decision, self._make_services())
 
         raise NotImplementedError(
             f"approval for task {task_id!r} in state {task.state!r} "
