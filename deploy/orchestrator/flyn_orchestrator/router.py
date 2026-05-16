@@ -60,6 +60,21 @@ class TaskRouter:
         self._channels = channel_registry
         self._workflows = workflows or []
 
+        from .phase_services import PhaseServices
+        self._services = PhaseServices(
+            store=self._store,
+            memory=self._memory,
+            channels=self._channels,
+            reviewer_invoker=self._reviewer_invoker,
+            transition=self._transition,
+            safe_transition=self._safe_transition,
+            notify=self._notify_originating_channel,
+            backend_registry=self._dispatcher._registry,
+            scratch_root=Path(self._wt_mgr._dir),
+            repo_path_for_workflow=self._repo_path_for_workflow,
+            workflows_dir=Path(__file__).parent / "workflows",
+        )
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -265,7 +280,7 @@ class TaskRouter:
                     findings=findings,
                     worktree_path=worktree_path,
                     repo_path=repo_path,
-                    services=self._make_services(),
+                    services=self._services,
                 )
             else:
                 self._transition(task_id, current_state, TaskState.DELIVERABLE_READY,
@@ -322,24 +337,7 @@ class TaskRouter:
 
     def _run_research_phase(self, task: TaskRecord) -> None:
         from . import research_phase
-        research_phase.run(task, self._make_services())
-
-    def _make_services(self):
-        """Build the PhaseServices bundle on demand. Will be cached in T06."""
-        from .phase_services import PhaseServices
-        return PhaseServices(
-            store=self._store,
-            memory=self._memory,
-            channels=self._channels,
-            reviewer_invoker=self._reviewer_invoker,
-            transition=self._transition,
-            safe_transition=self._safe_transition,
-            notify=self._notify_originating_channel,
-            backend_registry=self._dispatcher._registry,
-            scratch_root=Path(self._wt_mgr._dir),
-            repo_path_for_workflow=self._repo_path_for_workflow,
-            workflows_dir=Path(__file__).parent / "workflows",
-        )
+        research_phase.run(task, self._services)
 
     # ------------------------------------------------------------------
     # Content-workflow phase
@@ -347,7 +345,7 @@ class TaskRouter:
 
     def _run_content_phase(self, task: TaskRecord) -> None:
         from . import content_phase
-        content_phase.run(task, self._make_services())
+        content_phase.run(task, self._services)
 
     # ------------------------------------------------------------------
     # Ops-workflow phase
@@ -355,7 +353,7 @@ class TaskRouter:
 
     def _run_ops_phase(self, task: TaskRecord) -> None:
         from . import ops_phase
-        ops_phase.run(task, self._make_services())
+        ops_phase.run(task, self._services)
 
     def _handle_ops_approval(
         self,
@@ -378,7 +376,7 @@ class TaskRouter:
             decision=decision,
             approver_role=approver_role,
             rationale=rationale,
-            services=self._make_services(),
+            services=self._services,
         )
 
     # ------------------------------------------------------------------
@@ -401,15 +399,15 @@ class TaskRouter:
         # Ops workflow: AWAITING_OWNER_APPROVAL
         if task.state == TaskState.AWAITING_OWNER_APPROVAL and task.workflow == "ops":
             from . import ops_phase
-            return ops_phase.handle_approval(task, decision, self._make_services())
+            return ops_phase.handle_approval(task, decision, self._services)
 
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "content":
             from . import content_phase
-            return content_phase.handle_approval(task, decision, self._make_services())
+            return content_phase.handle_approval(task, decision, self._services)
 
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "dev":
             from . import dev_phase
-            return dev_phase.handle_approval(task, decision, self._make_services())
+            return dev_phase.handle_approval(task, decision, self._services)
 
         raise NotImplementedError(
             f"approval for task {task_id!r} in state {task.state!r} "
