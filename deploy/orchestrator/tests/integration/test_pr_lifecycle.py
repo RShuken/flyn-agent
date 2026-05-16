@@ -1,12 +1,15 @@
 """Verify the dev-workflow router pushes a branch, opens a PR, and merges on approval.
 
 Strategy for mocking:
-- flyn_orchestrator.pr.create_pr and merge_pr are patched directly (they own gh calls)
-- The git push in _run_dev_pr_phase is patched by replacing the method itself or by
-  wrapping subprocess.run with a selective side_effect that intercepts "git push"
-  while forwarding everything else to the real subprocess.run.
-- The stub backend uses _real_subprocess (aliased before the test runs) so its
-  git add/commit calls are NOT affected by any patching.
+- flyn_orchestrator.pr.create_pr and merge_pr are patched directly (they own gh calls).
+  dev_phase imports pr via module namespace (`from . import pr as _pr`) so patches
+  at flyn_orchestrator.pr.* still intercept after the Phase 2c extraction.
+- subprocess.run is patched in BOTH flyn_orchestrator.router (used by _compute_diff)
+  AND flyn_orchestrator.dev_phase (used by the git push step), with a selective
+  side_effect that intercepts "git push" while forwarding everything else to the
+  real subprocess.run.
+- The stub backend uses _REAL_SUBPROCESS_RUN (captured before any patching) so its
+  git add/commit calls are NOT affected by router/dev_phase patches.
 """
 from __future__ import annotations
 

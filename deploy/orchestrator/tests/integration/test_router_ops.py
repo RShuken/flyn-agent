@@ -368,36 +368,45 @@ def test_critical_tier_owner_only(ops_router):
         f"Expected AWAITING_OWNER_APPROVAL after critical intent, got {final.state!r}"
     )
 
-    # 3. Teammate (Eric) approval must be rejected
-    task = store.get_task(task_id)
+    # 3. Teammate (Eric) approval must be rejected. gate="teammate" routes to
+    # approver_role="teammate" inside ops_phase.handle_approval; critical tier
+    # rejects.
     with pytest.raises(PermissionError, match="owner"):
-        router._handle_ops_approval(
-            task=task,
-            approver="eric@example.com",
-            decision="approve",
-            approver_role="teammate",
-            rationale="Eric thinks it is fine",
+        router.handle_approval(
+            task_id,
+            ApprovalDecision(
+                task_id=task_id,
+                gate="teammate",
+                approver="eric@example.com",
+                approved=True,
+                reason="Eric thinks it is fine",
+            ),
         )
 
-    # 4. Owner (Ryan) without rationale must also be rejected
-    task = store.get_task(task_id)
+    # 4. Owner (Ryan) without rationale must also be rejected. gate="critical"
+    # routes to approver_role="owner"; empty reason triggers ValueError.
     with pytest.raises(ValueError, match="rationale"):
-        router._handle_ops_approval(
-            task=task,
-            approver="ryanshuken@gmail.com",
-            decision="approve",
-            approver_role="owner",
-            rationale="",   # empty — should fail
+        router.handle_approval(
+            task_id,
+            ApprovalDecision(
+                task_id=task_id,
+                gate="critical",
+                approver="ryanshuken@gmail.com",
+                approved=True,
+                reason="",   # empty — should fail
+            ),
         )
 
-    # 5. Owner (Ryan) with rationale — should succeed
-    task = store.get_task(task_id)
-    final2 = router._handle_ops_approval(
-        task=task,
-        approver="ryanshuken@gmail.com",
-        decision="approve",
-        approver_role="owner",
-        rationale="Confirmed we need to drop this corrupted backup; rollback tested.",
+    # 5. Owner (Ryan) with rationale — should succeed.
+    final2 = router.handle_approval(
+        task_id,
+        ApprovalDecision(
+            task_id=task_id,
+            gate="critical",
+            approver="ryanshuken@gmail.com",
+            approved=True,
+            reason="Confirmed we need to drop this corrupted backup; rollback tested.",
+        ),
     )
 
     assert final2.state == TaskState.DELIVERABLE_READY, (
