@@ -24,9 +24,9 @@
 | **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 8/9 + 1 🟡 | PR #7 merged at `e683d86`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation. 🟡 = ship-gate Procedure C awaits Ryan-on-live |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
 | **7 — Multi-PM** | 🟡 PARTIAL | 3/6 (50%) | branch `feat/orchestrator-phase-7-partial`; 249 tests; OLWikiPMAdapter + WebhookPMAdapter + conformance suite. 7.3/7.4/7.6 block on Cora PM |
-| **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
+| **Cross-cutting** | 🟡 PARTIAL | 7/8 (87%) | PR #12 — RESUME-HERE refresh + 4 new KNOWLEDGE entries (18/19/20/21) + retroactive CHANGELOG.md for PRs #1-#11. Only X.2 (audit/_baseline.md) remains. |
 
-**Overall completion: 73/87 criteria (84%)** — Phase 0-5 shipped + Phase 7 partial (3 criteria). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite (249 tests).
+**Overall completion: 76/87 criteria (87%)** — Phase 0-5 shipped + Phase 7 partial (3 criteria) + cross-cutting hygiene (3 criteria, PR #12). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite (249 tests).
 
 Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
@@ -235,17 +235,17 @@ These criteria are not phase-bound but should be satisfied as phases ship.
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| X.1 | `RESUME-HERE.md` reflects current shipped state (no stale entries) | 🟡 | Phase 0 entries added in T24 | Will need Phase 1+ updates |
-| X.2 | `audit/_baseline.md` delta per phase (new patterns/threats surfaced) | ⬜ | | |
-| X.3 | `KNOWLEDGE/<NN>-<slug>.md` entries for hard-won lessons (per §10 rule) | 🟡 | Phase 0 surfaced T03 + T12 bug patterns; not yet captured as KNOWLEDGE entries | Capture redact-list-of-dicts + hot-TTL-uses-last-updated lessons |
-| X.4 | Each phase's PR has a `CHANGELOG.md` entry | ⬜ | | |
+| X.1 | `RESUME-HERE.md` reflects current shipped state (no stale entries) | ✅ | Refreshed 2026-05-16 (PR #12) — added Flyn Orchestrator section reflecting Phase 0-7 shipped + live services on 4C + auth contention warning + manual ship-gates pending Ryan-on-live | — |
+| X.2 | `audit/_baseline.md` delta per phase (new patterns/threats surfaced) | ⬜ | | Deferred — `audit/_baseline.md` doesn't exist yet; create when first real security audit runs |
+| X.3 | `KNOWLEDGE/<NN>-<slug>.md` entries for hard-won lessons (per §10 rule) | ✅ | 18 (cross-module mock patching), 19 (test public API not internals), 20 (adapters never raise), 21 (OAuth vs API key token discrimination) added 2026-05-16 (PR #12); 15/16/17 already captured for Phase 1+1b lessons | — |
+| X.4 | Each phase's PR has a `CHANGELOG.md` entry | ✅ | `CHANGELOG.md` created 2026-05-16 (PR #12) — retroactive PR-numbered entries for PRs #1-#11; new entries added per merge going forward | — |
 | X.5 | Monthly `drill-sanitize-rescan.sh` against `borrowed/` assets | n/a Phase 1 | Phase 0 has no borrowed/ assets shipped | |
 | X.6 | `MEMORY.md` <200 lines (post-compaction-survival rule) | ✅ | Hot-tier decay enforces this; current file under threshold | |
 | X.7 | No live ClawHub deps (sanitize-and-copy only) | ✅ | Phase 0 has zero ClawHub installs; sanitization protocol documented in spec §7 | |
 | X.8 | All local services bind to `127.0.0.1` (not `0.0.0.0`) | ✅ | Verified for 8100, 8200, 8400 | Will recheck for 8300 in Phase 1 |
 | X.9 | Cron registrations idempotent (`|| echo "(already registered)"`) | ✅ | `register-flyn-crons.sh` pattern | |
 
-**Score: 4 ✅ + 2 🟡 + 2 ⬜ + 1 n/a = 4/8 done**
+**Score: 7 ✅ + 0 🟡 + 1 ⬜ + 1 n/a = 7/8 done** — only X.2 (`audit/_baseline.md` per-phase deltas) remains; deferred until first real security audit run
 
 ---
 

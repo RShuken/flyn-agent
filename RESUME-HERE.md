@@ -6,11 +6,71 @@
 >
 > You'll have full context in under 60 seconds.
 
-**Last session ended:** 2026-05-13
-**Scope:** Flyn as PM agent — **OpenLiteracy ONLY** for now. Cora is on the roadmap but not actively tracked.
-**Operator:** Ryan Shuken (Telegram chat_id `7191564227`)
-**Partner:** Beth Kukla, co-founder + COO Cora; PM for OL (chat_id `7434192034`)
+**Last session ended:** 2026-05-16
+**Scope:** Flyn as multi-channel orchestrator on Mac Mini 4C for the Cora team + OpenLiteracy as the active dogfood.
+**Operator / CTO:** Ryan Shuken (Telegram chat_id `7191564227`)
 **CEO:** Eric Schneider — pending Telegram (`@flyn_4c_bot` /start required)
+**COO:** Beth Kukla, co-founder Cora; PM for OL (chat_id `7434192034`)
+
+---
+
+## Flyn Orchestrator — current state (2026-05-16)
+
+The orchestrator buildout is **80%+ done across the 8-phase rubric**.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 — MemoryRouter (`:8400`) | ✅ SHIPPED | PR #1 |
+| 1 — Orchestrator foundation (`:8300`) | ✅ SHIPPED | PR #2; 13/14 (Watchdog deferred) |
+| 1b — Hardening | ✅ SHIPPED | PR #3; 9/9 |
+| 2 — Dev workflow (gh PR open/merge, walk-me-through, file locks) | ✅ SHIPPED | PR #4; 10/10 |
+| 2c — Router refactor | ✅ SHIPPED | PR #8 + #9; router.py 1398 → 554 lines, 4 phase modules |
+| 3 — Research workflow (parallel researchers + critic + synthesizer) | ✅ SHIPPED | PR #5; 7/7 |
+| 4 — Content workflow (PM/Writer/Editor/Factcheck/Humanize + send-via-X) | ✅ SHIPPED | PR #6; 8/8 |
+| 5 — Ops workflow (risk-tier classifier + audit log + tier approval) | ✅ SHIPPED | PR #7; 8/9 + 1 🟡 (ship-gate awaits Ryan-on-live) |
+| 6 — Multi-channel | ⬜ 0/8 | Blocked on DNS for `getcora.io` + Google Workspace OAuth |
+| 7 — Multi-PM | 🟡 3/6 | PR #11 OLWikiPMAdapter + WebhookPMAdapter + conformance suite |
+
+**Live services on 4C:**
+- `:8100` Graphiti
+- `:8200` OL Wiki (now also a PMAdapter target via Phase 7 PR #11)
+- `:8300` flyn-orchestrator (currently stopped — see "Auth contention" below)
+- `:8400` flyn-memory-router
+
+**Manual ship-gates still pending Ryan-on-live:**
+- Phase 0 step 1 — real Telegram DM to `@flyn_4c_bot`
+- Phase 1 step 1 — same Telegram outbound at `deliverable_ready`
+- Phase 1b step 6 — outbound Telegram from real orchestrator run
+- Phase 2 — real PR on real repo via the pipeline
+- Phase 3 — real research request → delivered report
+- Phase 4 — real draft, then optional send via Telegram
+- Phase 5 Procedure C — critical-tier ops task end-to-end with rationale
+
+**Auth contention** (KNOWLEDGE/17, 21):
+The orchestrator's `:8300` is stopped (`launchctl unload`) to free OAuth credentials for interactive Claude Code sessions. To re-enable, either generate a real `sk-ant-api03-*` key at console.anthropic.com and put it under `anthropic:default` in `auth-profiles.json`, or accept that running workers will occasionally log out interactive sessions.
+
+**Phase 6/7 remaining buildable-without-blockers** (autonomous next):
+- Phase 6.3 EmailChannelAdapter IMAP/SMTP code (live-gated on DNS)
+- Phase 6.5 SPF/DKIM verification on inbound
+- Phase 6.6 Subject-line tagging convention docs (`[FLYN-TASK]` etc)
+- Phase 6.7 Email-body prompt-injection detection
+
+**Test count:** 249 across `deploy/orchestrator/tests/` (Phase 7 PR #11 added 57 PMAdapter conformance + adapter-specific tests).
+
+**Rubric:** `deploy/outcomes/ORCHESTRATOR-PHASE-RUBRIC.md` — **73/87 criteria (84%)** as of PR #11 merge.
+
+**Recent KNOWLEDGE entries** (lessons captured this week):
+- 15: `claude -p --output-format stream-json` requires `--verbose` (silent 0-byte exit otherwise)
+- 16: WorktreeManager idempotency under stale state
+- 17: claude-p OAuth refresh fallback
+- 18: Cross-module mock patching after refactors
+- 19: Test the public API, not internals
+- 20: Adapters never raise
+- 21: Discriminate `sk-ant-oat-*` (OAuth) vs `sk-ant-api-*` (API key) tokens
+
+---
+
+## OpenLiteracy (prior context, still active)
 
 ---
 
@@ -194,3 +254,5 @@ Claude will load this doc, check live state, and recommend the next concrete mov
 ---
 
 *Saved 2026-05-13 by Claude Opus 4.7 (1M context). Auto-memory pointer at `~/.claude/projects/-Users-4c-AI/memory/project_openliteracy_flyn_build.md`.*
+
+*Updated 2026-05-16 by Claude Opus 4.7 — added Flyn Orchestrator section at top reflecting Phase 0-7 partial shipped (PRs #1-#11 merged). Orchestrator auto-memory at `~/.claude/projects/-Users-4c-AI-openclaw/memory/project_flyn_orchestrator_brainstorm.md`.*
