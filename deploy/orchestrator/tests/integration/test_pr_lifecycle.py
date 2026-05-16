@@ -145,15 +145,18 @@ def dev_router(tmp_path: Path, repo: Path):
 # ---------------------------------------------------------------------------
 
 @patch("flyn_orchestrator.pr.create_pr")
+@patch("flyn_orchestrator.dev_phase.subprocess.run")
 @patch("flyn_orchestrator.router.subprocess.run")
-def test_dev_workflow_pushes_and_opens_pr(mock_router_run, mock_create_pr, dev_router):
+def test_dev_workflow_pushes_and_opens_pr(mock_router_run, mock_dev_run, mock_create_pr, dev_router):
     """Happy path: dev workflow reaches FINAL_APPROVAL_PENDING with pr_url stored.
 
-    subprocess.run is patched with a selective side_effect: intercepts 'git push'
-    (returns success), forwards all other calls to the real subprocess so that
-    WorktreeManager and _compute_diff continue to work.
+    subprocess.run is patched in both router and dev_phase with a selective
+    side_effect: intercepts 'git push' (returns success), forwards all other
+    calls to the real subprocess so that WorktreeManager and _compute_diff
+    continue to work.
     """
     mock_router_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
+    mock_dev_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
     mock_create_pr.return_value = "https://github.com/test/repo/pull/7"
 
     router, store = dev_router
@@ -176,19 +179,21 @@ def test_dev_workflow_pushes_and_opens_pr(mock_router_run, mock_create_pr, dev_r
     # Verify create_pr was called
     mock_create_pr.assert_called_once()
 
-    # Verify git push was intercepted (the selective mock captured it)
+    # Verify git push was intercepted (the selective mock captured it in dev_phase)
     push_calls = [
-        call for call in mock_router_run.call_args_list
+        call for call in mock_dev_run.call_args_list
         if call.args and isinstance(call.args[0], (list, tuple)) and "push" in call.args[0]
     ]
     assert len(push_calls) >= 1, "expected at least one git push call"
 
 
 @patch("flyn_orchestrator.pr.create_pr")
+@patch("flyn_orchestrator.dev_phase.subprocess.run")
 @patch("flyn_orchestrator.router.subprocess.run")
-def test_dev_workflow_falls_back_on_push_failure(mock_router_run, mock_create_pr, dev_router):
+def test_dev_workflow_falls_back_on_push_failure(mock_router_run, mock_dev_run, mock_create_pr, dev_router):
     """If git push fails, router falls back to DELIVERABLE_READY and never calls create_pr."""
-    mock_router_run.side_effect = _make_selective_subprocess_mock(fail_push=True)
+    mock_router_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
+    mock_dev_run.side_effect = _make_selective_subprocess_mock(fail_push=True)
 
     router, store = dev_router
     req = InboundTaskRequest(
@@ -209,10 +214,12 @@ def test_dev_workflow_falls_back_on_push_failure(mock_router_run, mock_create_pr
 
 @patch("flyn_orchestrator.pr.merge_pr")
 @patch("flyn_orchestrator.pr.create_pr")
+@patch("flyn_orchestrator.dev_phase.subprocess.run")
 @patch("flyn_orchestrator.router.subprocess.run")
-def test_approval_merges_pr(mock_router_run, mock_create_pr, mock_merge_pr, dev_router):
+def test_approval_merges_pr(mock_router_run, mock_dev_run, mock_create_pr, mock_merge_pr, dev_router):
     """Approving a FINAL_APPROVAL_PENDING dev task calls merge_pr and transitions to COMPLETED."""
     mock_router_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
+    mock_dev_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
     mock_create_pr.return_value = "https://github.com/test/repo/pull/42"
     mock_merge_pr.return_value = True
 
@@ -243,10 +250,12 @@ def test_approval_merges_pr(mock_router_run, mock_create_pr, mock_merge_pr, dev_
 
 @patch("flyn_orchestrator.pr.merge_pr")
 @patch("flyn_orchestrator.pr.create_pr")
+@patch("flyn_orchestrator.dev_phase.subprocess.run")
 @patch("flyn_orchestrator.router.subprocess.run")
-def test_approval_rejection_cancels_task(mock_router_run, mock_create_pr, mock_merge_pr, dev_router):
+def test_approval_rejection_cancels_task(mock_router_run, mock_dev_run, mock_create_pr, mock_merge_pr, dev_router):
     """Rejecting a FINAL_APPROVAL_PENDING dev task transitions to CANCELLED."""
     mock_router_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
+    mock_dev_run.side_effect = _make_selective_subprocess_mock(fail_push=False)
     mock_create_pr.return_value = "https://github.com/test/repo/pull/99"
     mock_merge_pr.return_value = True  # should never be called
 

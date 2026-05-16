@@ -19,15 +19,6 @@ from .adapters import ChannelRegistry
 from .cost import BudgetExceeded, CostTracker
 from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
-from .pr import PRError
-from .content import (
-    spec_content, draft_content, edit_content,
-    fact_check_content, humanize_content,
-)
-from .formatting import format_for_platform
-from .research import (
-    decompose_intent, run_researchers, critique, synthesize, write_output,
-)
 from .reviewer import review as _default_review
 from .state import StateStore
 from .workflows import Workflow, match_intent
@@ -41,42 +32,7 @@ from .types import (
     WorkerSpec,
 )
 from .worktree import WorktreeManager
-from . import ops as _ops
-from . import audit as _audit
-from .risk_tier import load_rules
 
-
-def _format_pr_body(task: TaskRecord, plan: dict, review: ReviewFindings) -> str:
-    icon = "✅" if review.passed else "⚠️"
-    findings_md = "\n".join(
-        f"- {'🔴' if f.severity == 'critical' else '🟡' if f.severity == 'important' else '🔵'} "
-        f"**{f.severity}/{f.area}:** {f.note}"
-        for f in review.findings
-    ) or "_No findings._"
-    files_md = "\n".join(f"- `{f}`" for f in plan.get("estimated_files_touched", []))
-    return f"""## {icon} {plan.get('title', task.intent[:60])}
-
-**Task ID:** {task.task_id}
-**Requester:** {task.sender_identifier} ({task.sender_role})
-
-### Rationale
-{plan.get('rationale', '(none)')}
-
-### Files touched
-{files_md or '(none listed)'}
-
-### Reviewer verdict
-{review.summary}
-
-### Findings
-{findings_md}
-
-### Verification
-{plan.get('verification', '(none)')}
-
----
-🤖 Built by Flyn (orchestrator). Builder prompt: see `~/.flyn/orchestrator/workspaces/{task.task_id}/`.
-"""
 
 
 class TaskRouter:
@@ -103,6 +59,21 @@ class TaskRouter:
         self._reviewer_invoker = reviewer_invoker or _default_review
         self._channels = channel_registry
         self._workflows = workflows or []
+
+        from .phase_services import PhaseServices
+        self._services = PhaseServices(
+            store=self._store,
+            memory=self._memory,
+            channels=self._channels,
+            reviewer_invoker=self._reviewer_invoker,
+            transition=self._transition,
+            safe_transition=self._safe_transition,
+            notify=self._notify_originating_channel,
+            backend_registry=self._dispatcher._registry,
+            scratch_root=Path(self._wt_mgr._dir),
+            repo_path_for_workflow=self._repo_path_for_workflow,
+            workflows_dir=Path(__file__).parent / "workflows",
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -301,13 +272,15 @@ class TaskRouter:
 
             # 13. Branch on workflow: dev gets PR phase; default goes straight to DELIVERABLE_READY
             if t.workflow == "dev":
-                return self._run_dev_pr_phase(
+                from . import dev_phase
+                return dev_phase.run_pr_phase(
                     task_id=task_id,
                     task=t,
                     plan_obj=plan_obj,
                     findings=findings,
                     worktree_path=worktree_path,
                     repo_path=repo_path,
+                    services=self._services,
                 )
             else:
                 self._transition(task_id, current_state, TaskState.DELIVERABLE_READY,
@@ -359,621 +332,28 @@ class TaskRouter:
             raise
 
     # ------------------------------------------------------------------
-    # Dev-workflow PR phase
-    # ------------------------------------------------------------------
-
-    def _run_dev_pr_phase(
-        self,
-        *,
-        task_id: str,
-        task: TaskRecord,
-        plan_obj: dict,
-        findings: ReviewFindings,
-        worktree_path: Path,
-        repo_path: Path,
-    ) -> TaskRecord:
-        """Push branch, open PR, transition to FINAL_APPROVAL_PENDING.
-
-        Falls back to DELIVERABLE_READY (Phase 1 MVP terminal) on push or
-        PR-create failure so a dev workflow without origin auth still ships.
-        """
-        branch = f"flyn/{task_id}"
-
-        # --- 1. Push branch ---
-        try:
-            subprocess.run(
-                ["git", "push", "-u", "origin", branch],
-                cwd=str(worktree_path),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            self._memory.emit(
-                source="orchestrator",
-                event_type="pr_push_failed",
-                subject=task_id,
-                body=f"git push failed: {(e.stderr or '').strip()[:200]}",
-                dedup_key=f"orch-{task_id}-push-fail",
-                importance="warm",
-            )
-            self._safe_transition(task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
-                                  actor="router", reason="push failed; falling back to deliverable_ready")
-            self._notify_originating_channel(self._store.get_task(task_id), findings)
-            return self._store.get_task(task_id)
-
-        # --- 2. Create PR ---
-        body = _format_pr_body(task, plan_obj, findings)
-        title = (plan_obj or {}).get("title") or task.intent[:60]
-        try:
-            from .pr import create_pr
-            pr_url = create_pr(
-                repo_path=Path(repo_path),
-                title=title,
-                body=body,
-                base="main",
-                head=branch,
-            )
-        except PRError as e:
-            self._memory.emit(
-                source="orchestrator",
-                event_type="pr_create_failed",
-                subject=task_id,
-                body=f"gh pr create failed: {str(e)[:200]}",
-                dedup_key=f"orch-{task_id}-pr-fail",
-                importance="warm",
-            )
-            self._safe_transition(task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
-                                  actor="router", reason="PR create failed; falling back to deliverable_ready")
-            self._notify_originating_channel(self._store.get_task(task_id), findings)
-            return self._store.get_task(task_id)
-
-        # --- 3. Store PR metadata, transition, notify ---
-        self._store.update_task_payload(task_id, {"pr_url": pr_url, "branch": branch})
-        self._safe_transition(task_id, TaskState.REVIEWED, TaskState.FINAL_APPROVAL_PENDING,
-                              actor="router", reason=f"PR {pr_url} opened")
-        self._memory.emit(
-            source="orchestrator",
-            event_type="pr_opened",
-            subject=task_id,
-            body=f"PR opened: {pr_url}",
-            dedup_key=f"orch-{task_id}-pr",
-            importance="warm",
-        )
-        # Re-fetch so notify has the updated payload (pr_url, branch)
-        updated_task = self._store.get_task(task_id)
-        self._notify_originating_channel(updated_task, findings, pr_url=pr_url)
-        return updated_task
-
-    # ------------------------------------------------------------------
     # Research-workflow phase
     # ------------------------------------------------------------------
 
     def _run_research_phase(self, task: TaskRecord) -> None:
-        """Walk the 5-step research flow. Idempotent for state transitions.
-
-        Steps:
-          DECOMPOSED → DISPATCHED (PM decomposes intent)
-          DISPATCHED → RUNNING   (parallel researchers)
-          RUNNING    → REVIEWED  (critique)
-          REVIEWED   → DELIVERABLE_READY | CHANGES_REQUESTED
-        """
-        backend = self._dispatcher._registry.get("claude-p")
-        scratch = self._wt_mgr._dir / task.task_id
-        scratch.mkdir(parents=True, exist_ok=True)
-
-        # 1. Decompose
-        self._safe_transition(
-            task.task_id, TaskState.DECOMPOSED, TaskState.DISPATCHED,
-            actor="router", reason="research: PM decomposing",
-        )
-        plan = decompose_intent(
-            task.intent, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        if plan is None or not plan.sub_questions:
-            self._safe_transition(
-                task.task_id, TaskState.DISPATCHED, TaskState.FAILED,
-                actor="research", reason="PM output unparseable or empty",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="task_failed",
-                subject=task.task_id, body="research PM step failed",
-                dedup_key=f"orch-{task.task_id}-pm-fail", importance="warm",
-            )
-            return
-
-        # 2. Researchers
-        self._safe_transition(
-            task.task_id, TaskState.DISPATCHED, TaskState.RUNNING,
-            actor="research", reason=f"running {len(plan.sub_questions)} researchers",
-        )
-        outputs = run_researchers(
-            plan, scratch_dir=scratch, backend=backend,
-            task_id=task.task_id, max_parallel=4,
-        )
-        if not outputs:
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.FAILED,
-                actor="research", reason="no researcher outputs",
-            )
-            return
-
-        # 3. Critique
-        self._safe_transition(
-            task.task_id, TaskState.RUNNING, TaskState.REVIEWED,
-            actor="research", reason=f"got {len(outputs)} researcher outputs",
-        )
-        critique_result = critique(
-            plan, outputs, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        self._memory.emit(
-            source="orchestrator", event_type="critique_complete",
-            subject=task.task_id,
-            body=f"critique passed={critique_result.passed}; "
-                 f"{len(critique_result.findings)} findings",
-            dedup_key=f"orch-{task.task_id}-critique", importance="warm",
-        )
-        if not critique_result.passed:
-            critical_findings = [
-                f for f in critique_result.findings
-                if f.severity in ("critical", "important")
-            ]
-            self._safe_transition(
-                task.task_id, TaskState.REVIEWED, TaskState.CHANGES_REQUESTED,
-                actor="critic",
-                reason=f"critique failed: {len(critical_findings)} blocking findings",
-            )
-            return
-
-        # 4. Synthesize
-        minor = [f for f in critique_result.findings if f.severity in ("minor", "info")]
-        report_md = synthesize(
-            title=plan.title, requester=task.sender_identifier,
-            task_id=task.task_id, rationale=plan.rationale, outputs=outputs,
-            minor_findings=minor, scratch_dir=scratch, backend=backend,
-        )
-
-        # 5. Write output
-        report_path = write_output(
-            report_md=report_md, outputs=outputs, title=plan.title, task_id=task.task_id,
-        )
-        self._store.update_task_payload(task.task_id, {
-            "report_path": str(report_path),
-            "research_title": plan.title,
-        })
-        self._safe_transition(
-            task.task_id, TaskState.REVIEWED, TaskState.DELIVERABLE_READY,
-            actor="router", reason=f"report at {report_path}",
-        )
-        self._memory.emit(
-            source="orchestrator", event_type="research_complete",
-            subject=task.task_id,
-            body=f"Research report '{plan.title}' delivered to {report_path}",
-            dedup_key=f"orch-{task.task_id}-research", importance="warm",
-        )
-        self._notify_originating_channel(
-            self._store.get_task(task.task_id), None,
-            research_report_path=str(report_path),
-            research_summary=report_md[:1500],
-        )
+        from . import research_phase
+        research_phase.run(task, self._services)
 
     # ------------------------------------------------------------------
     # Content-workflow phase
     # ------------------------------------------------------------------
 
     def _run_content_phase(self, task: TaskRecord) -> None:
-        """Walk the content workflow's 8-phase sequential pipeline.
-
-        Steps:
-          DECOMPOSED → DISPATCHED (PM refines spec)
-          DISPATCHED → RUNNING   (Writer drafts)
-          RUNNING    → CHANGES_REQUESTED  (if Editor or Fact-checker blocks)
-          RUNNING    → DELIVERABLE_READY  (wants_send=False; draft posted to channel)
-          RUNNING    → FINAL_APPROVAL_PENDING  (wants_send=True; teammate approves to send)
-        """
-        import json as _json
-        import os
-        import re
-
-        backend = self._dispatcher._registry.get("claude-p")
-        scratch = Path(self._wt_mgr._dir) / task.task_id
-        scratch.mkdir(parents=True, exist_ok=True)
-
-        # 1. Spec (PM)
-        self._safe_transition(
-            task.task_id, TaskState.DECOMPOSED, TaskState.DISPATCHED,
-            actor="content", reason="PM refining spec",
-        )
-        content_spec = spec_content(
-            task.intent, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        if content_spec is None or content_spec.title.startswith("("):
-            self._safe_transition(
-                task.task_id, TaskState.DISPATCHED, TaskState.FAILED,
-                actor="content", reason="PM spec unparseable or ambiguous",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="task_failed",
-                subject=task.task_id, body="content PM step failed",
-                dedup_key=f"orch-{task.task_id}-pm-fail", importance="warm",
-            )
-            return
-
-        # 2. Draft (Writer)
-        self._safe_transition(
-            task.task_id, TaskState.DISPATCHED, TaskState.RUNNING,
-            actor="content", reason="drafting",
-        )
-        draft = draft_content(
-            content_spec, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        if not draft.strip():
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.FAILED,
-                actor="content", reason="writer produced no draft",
-            )
-            return
-
-        # 3. Edit (Editor — fresh-context)
-        edit_result = edit_content(
-            content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        if not edit_result.passed:
-            blocking = [e for e in edit_result.edits if e.severity in ("critical", "important")]
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.CHANGES_REQUESTED,
-                actor="editor",
-                reason=f"editor blocked: {len(blocking)} blocking edits",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="content_changes_requested",
-                subject=task.task_id,
-                body=f"Editor blocked with {len(blocking)} critical/important edits: {edit_result.summary}",
-                dedup_key=f"orch-{task.task_id}-edit-block", importance="warm",
-            )
-            return
-
-        # 4. Fact-check (conditional)
-        if content_spec.needs_fact_check:
-            fc_result = fact_check_content(
-                content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-            )
-            if not fc_result.passed:
-                blocking = [f for f in fc_result.findings if f.severity in ("critical", "important")]
-                self._safe_transition(
-                    task.task_id, TaskState.RUNNING, TaskState.CHANGES_REQUESTED,
-                    actor="fact_checker",
-                    reason=f"fact-checker blocked: {len(blocking)} blocking findings",
-                )
-                self._memory.emit(
-                    source="orchestrator", event_type="content_changes_requested",
-                    subject=task.task_id,
-                    body=f"Fact-checker blocked with {len(blocking)} critical/important findings: {fc_result.summary}",
-                    dedup_key=f"orch-{task.task_id}-fc-block", importance="warm",
-                )
-                return
-
-        # 5. Humanize (optional)
-        if content_spec.needs_humanize:
-            draft = humanize_content(
-                content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-            )
-
-        # 6. Format for platform
-        formatted = format_for_platform(draft, platform=content_spec.platform)
-
-        # 7. Write to disk
-        root = Path(os.environ.get(
-            "FLYN_CONTENT_OUTPUT_ROOT",
-            str(Path.home() / "Work" / "content"),
-        ))
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        topic_slug = _slugify_for_content(content_spec.title)
-        topic_dir = root / topic_slug
-        topic_dir.mkdir(parents=True, exist_ok=True)
-        draft_path = topic_dir / f"{date_str}-{topic_slug}.md"
-        draft_path.write_text(formatted.text)
-
-        # Metadata sidecar
-        meta_path = topic_dir / f"{date_str}-{topic_slug}.metadata.json"
-        meta_path.write_text(_json.dumps({
-            "task_id": task.task_id,
-            "spec": {
-                "title": content_spec.title,
-                "platform": content_spec.platform,
-                "tone": content_spec.tone,
-                "voice": content_spec.voice,
-                "length_target": content_spec.length_target,
-                "wants_send": content_spec.wants_send,
-                "send_destination": content_spec.send_destination,
-            },
-            "warnings": formatted.warnings,
-        }, indent=2))
-
-        # 8. Decide final state
-        self._store.update_task_payload(task.task_id, {
-            "draft_path": str(draft_path),
-            "content_title": content_spec.title,
-            "wants_send": content_spec.wants_send,
-            "send_destination": content_spec.send_destination,
-            "platform": content_spec.platform,
-        })
-
-        if content_spec.wants_send and content_spec.send_destination:
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.FINAL_APPROVAL_PENDING,
-                actor="router",
-                reason=f"draft ready; awaiting send approval for {content_spec.send_destination}",
-            )
-        else:
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.DELIVERABLE_READY,
-                actor="router", reason=f"draft at {draft_path}",
-            )
-
-        self._memory.emit(
-            source="orchestrator", event_type="content_drafted",
-            subject=task.task_id,
-            body=f"Content draft '{content_spec.title}' written to {draft_path}",
-            dedup_key=f"orch-{task.task_id}-content", importance="warm",
-        )
-
-        # Notify originating channel with the formatted draft (truncated to 1500 chars)
-        self._notify_originating_channel(
-            self._store.get_task(task.task_id), None,
-            content_draft_path=str(draft_path),
-            content_draft_text=formatted.text[:1500],
-        )
+        from . import content_phase
+        content_phase.run(task, self._services)
 
     # ------------------------------------------------------------------
     # Ops-workflow phase
     # ------------------------------------------------------------------
 
-    _OPS_WORKFLOWS_DIR = Path(__file__).parent / "workflows"
-    _OPS_RISK_RULES_PATH = Path(__file__).parent / "workflows" / "ops" / "risk-rules.yaml"
-
-    # Which sender_roles count as "owner" for approval gating.
-    _OWNER_ROLES = frozenset({"owner"})
-    _TEAMMATE_OR_OWNER_ROLES = frozenset({"owner", "teammate"})
-
     def _run_ops_phase(self, task: TaskRecord) -> None:
-        """Walk the full ops pipeline.
-
-        Steps:
-          DECOMPOSED → DISPATCHED  (PM specs the action)
-          DISPATCHED → RUNNING     (classify risk + dry-run)
-          RUNNING → AWAITING_OWNER_APPROVAL  (medium/high/critical tier)
-          RUNNING → DELIVERABLE_READY        (low tier auto-executes)
-
-        After execution (either auto or resumed from approval):
-          validate → DELIVERABLE_READY or AWAITING_OWNER_APPROVAL (validator concerns)
-        """
-        import json as _json
-
-        backend = self._dispatcher._registry.get("claude-p")
-        scratch = Path(self._wt_mgr._dir) / task.task_id
-        scratch.mkdir(parents=True, exist_ok=True)
-
-        # 1. Spec (PM)
-        self._safe_transition(
-            task.task_id, TaskState.DECOMPOSED, TaskState.DISPATCHED,
-            actor="ops", reason="PM speccing ops action",
-        )
-        spec = _ops.spec_ops_action(
-            task.intent, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        if spec is None or spec.title.startswith("("):
-            self._safe_transition(
-                task.task_id, TaskState.DISPATCHED, TaskState.FAILED,
-                actor="ops", reason="PM ops spec unparseable or ambiguous",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="task_failed",
-                subject=task.task_id, body="ops PM step failed",
-                dedup_key=f"orch-{task.task_id}-pm-fail", importance="warm",
-            )
-            return
-
-        # Persist OpsSpec to task state
-        self._store.update_task_payload(task.task_id, {
-            "ops_spec": {
-                "title": spec.title,
-                "rationale": spec.rationale,
-                "target": spec.target,
-                "action": spec.action,
-                "preconditions": spec.preconditions,
-                "postconditions": spec.postconditions,
-                "rollback": spec.rollback,
-                "dry_run_supported": spec.dry_run_supported,
-                "estimated_blast_radius": spec.estimated_blast_radius,
-                "external_calls": spec.external_calls,
-            }
-        })
-
-        # 2. Classify risk
-        self._safe_transition(
-            task.task_id, TaskState.DISPATCHED, TaskState.RUNNING,
-            actor="ops", reason="risk classify + dry-run",
-        )
-        rules = load_rules(self._OPS_RISK_RULES_PATH)
-        risk = _ops.classify_risk(
-            task.intent, spec,
-            rules=rules,
-            scratch_dir=scratch,
-            backend=backend,
-            task_id=task.task_id,
-        )
-        tier = risk.tier
-
-        # Persist risk assessment
-        self._store.update_task_payload(task.task_id, {
-            "risk_tier": tier,
-            "risk_reason": risk.reason,
-            "risk_upgraded_from_rule": risk.upgraded_from_rule,
-            "risk_rule_floor": risk.rule_floor,
-        })
-
-        # 3. Pre-snapshot
-        before_snap = _audit.snapshot_target(spec.target)
-        self._store.append_audit(
-            task_id=task.task_id,
-            actor="ops",
-            action="pre-snapshot",
-            target=spec.target,
-            before_hash=before_snap.hash_value or None,
-            after_hash=None,
-            payload={"tier": tier, "kind": before_snap.kind},
-        )
-
-        # 4. Dry-run
-        dry_result = _ops.dry_run_action(
-            spec, tier=tier, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        self._store.append_audit(
-            task_id=task.task_id,
-            actor="ops",
-            action="dry-run",
-            target=spec.target,
-            before_hash=before_snap.hash_value or None,
-            after_hash=None,
-            payload={
-                "tier": tier,
-                "would_do": dry_result.would_do,
-                "concerns": dry_result.concerns,
-                "expected_blast_radius": dry_result.expected_blast_radius,
-            },
-        )
-
-        # 5. Tier-based gate
-        if tier == "low":
-            # Auto-approve: execute immediately
-            self._execute_ops_and_finalize(
-                task=task,
-                spec=spec,
-                tier=tier,
-                before_snap=before_snap,
-                scratch=scratch,
-                backend=backend,
-            )
-        else:
-            # medium / high / critical — block for owner approval
-            approval_context: dict = {
-                "ops_spec_title": spec.title,
-                "risk_tier": tier,
-                "risk_reason": risk.reason,
-                "dry_run_would_do": dry_result.would_do,
-                "dry_run_concerns": dry_result.concerns,
-            }
-            if tier == "critical":
-                approval_context["requires_rationale"] = True
-
-            self._store.update_task_payload(task.task_id, {
-                "approval_context": approval_context,
-            })
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
-                actor="ops",
-                reason=f"risk tier={tier}; awaiting owner approval",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="ops_awaiting_approval",
-                subject=task.task_id,
-                body=f"Ops task {task.task_id} blocked at tier={tier}; awaiting owner approval",
-                dedup_key=f"orch-{task.task_id}-awaiting", importance="warm",
-            )
-
-    def _execute_ops_and_finalize(
-        self,
-        *,
-        task: TaskRecord,
-        spec: "_ops.OpsSpec",
-        tier: str,
-        before_snap: "_audit.SnapshotBundle",
-        scratch: Path,
-        backend,
-    ) -> None:
-        """Execute the ops action, post-snapshot, validate, and transition to final state.
-
-        Called either directly (low tier) or after owner approval (medium/high/critical).
-        """
-        # Execute
-        exec_result = _ops.execute_action(
-            spec, tier=tier, scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-
-        # Post-snapshot
-        after_snap = _audit.snapshot_target(spec.target)
-        changed = _audit.verify_target_changed(before_snap, after_snap)
-        self._store.append_audit(
-            task_id=task.task_id,
-            actor="ops",
-            action="post-snapshot",
-            target=spec.target,
-            before_hash=before_snap.hash_value or None,
-            after_hash=after_snap.hash_value or None,
-            payload={
-                "tier": tier,
-                "changed": changed,
-                "actions_taken": exec_result.actions_taken,
-                "errors": exec_result.errors,
-            },
-        )
-
-        # Validate
-        val_result = _ops.validate_action(
-            spec, before_snap, after_snap,
-            scratch_dir=scratch, backend=backend, task_id=task.task_id,
-        )
-        self._store.append_audit(
-            task_id=task.task_id,
-            actor="ops",
-            action="validate",
-            target=spec.target,
-            before_hash=before_snap.hash_value or None,
-            after_hash=after_snap.hash_value or None,
-            payload={
-                "passed": val_result.passed,
-                "summary": val_result.summary,
-                "tier": tier,
-            },
-        )
-
-        if val_result.passed:
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.DELIVERABLE_READY,
-                actor="ops", reason=f"validator passed; tier={tier}",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="ops_complete",
-                subject=task.task_id,
-                body=f"Ops task {task.task_id} completed successfully; tier={tier}",
-                dedup_key=f"orch-{task.task_id}-ops-complete", importance="warm",
-            )
-        else:
-            # Validator concerns — block for owner review even if low tier auto-executed
-            self._store.update_task_payload(task.task_id, {
-                "validator_concerns": val_result.summary,
-                "validator_postcondition_results": [
-                    {
-                        "postcondition": p.postcondition,
-                        "verified": p.verified,
-                        "evidence": p.evidence,
-                        "severity_if_failed": p.severity_if_failed,
-                    }
-                    for p in val_result.postcondition_results
-                ],
-            })
-            self._safe_transition(
-                task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
-                actor="validator",
-                reason=f"validator FAIL; tier={tier}; concerns: {val_result.summary[:200]}",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="ops_validator_fail",
-                subject=task.task_id,
-                body=f"Validator failed for {task.task_id}: {val_result.summary}",
-                dedup_key=f"orch-{task.task_id}-val-fail", importance="warm",
-            )
+        from . import ops_phase
+        ops_phase.run(task, self._services)
 
     def _handle_ops_approval(
         self,
@@ -984,104 +364,20 @@ class TaskRouter:
         approver_role: str = "owner",
         rationale: Optional[str] = None,
     ) -> TaskRecord:
-        """Handle human approval for an ops task at AWAITING_OWNER_APPROVAL.
+        """Thin delegation shim — preserves the old private signature for tests.
 
-        decision: "approve" | "reject"
-        approver_role: "owner" | "teammate" (caller must supply from auth context)
-
-        Auth rules:
-          - critical tier: owner only
-          - medium/high tier: owner or teammate
-
-        Critical tier additionally requires a non-empty rationale string.
+        Delegates to ops_phase._handle_approval_impl so the auth gate logic
+        lives in exactly one place.
         """
-        payload = task.raw_payload or {}
-        tier = payload.get("risk_tier", "medium")
-
-        # Auth check
-        if tier == "critical":
-            if approver_role not in self._OWNER_ROLES:
-                raise PermissionError(
-                    f"critical-tier ops task {task.task_id!r} requires owner approval; "
-                    f"approver {approver!r} has role {approver_role!r}"
-                )
-            if decision == "approve" and not rationale:
-                raise ValueError(
-                    f"critical-tier approval for {task.task_id!r} requires an explicit rationale"
-                )
-        else:
-            # medium or high — owner or teammate
-            if approver_role not in self._TEAMMATE_OR_OWNER_ROLES:
-                raise PermissionError(
-                    f"ops task {task.task_id!r} (tier={tier}) requires owner or teammate approval; "
-                    f"approver {approver!r} has role {approver_role!r}"
-                )
-
-        if decision == "reject":
-            self._store.append_audit(
-                task_id=task.task_id,
-                actor=approver,
-                action="reject",
-                target=payload.get("ops_spec", {}).get("target", ""),
-                before_hash=None,
-                after_hash=None,
-                payload={"tier": tier, "rationale": rationale or ""},
-            )
-            self._safe_transition(
-                task.task_id, TaskState.AWAITING_OWNER_APPROVAL, TaskState.REJECTED,
-                actor=approver, reason=f"ops rejected by {approver}; tier={tier}",
-            )
-            return self._store.get_task(task.task_id)
-
-        # Approved — resume execute phase
-        # Rebuild OpsSpec from stored payload
-        spec_data = payload.get("ops_spec") or {}
-        spec = _ops.OpsSpec(
-            title=spec_data.get("title", ""),
-            rationale=spec_data.get("rationale", ""),
-            target=spec_data.get("target", ""),
-            action=spec_data.get("action", ""),
-            preconditions=list(spec_data.get("preconditions") or []),
-            postconditions=list(spec_data.get("postconditions") or []),
-            rollback=spec_data.get("rollback", ""),
-            dry_run_supported=bool(spec_data.get("dry_run_supported", False)),
-            estimated_blast_radius=spec_data.get("estimated_blast_radius", ""),
-            external_calls=list(spec_data.get("external_calls") or []),
-        )
-
-        # Re-take before snapshot (task was paused; re-snapshot current state)
-        before_snap = _audit.snapshot_target(spec.target)
-
-        self._store.append_audit(
-            task_id=task.task_id,
-            actor=approver,
-            action="approved",
-            target=spec.target,
-            before_hash=before_snap.hash_value or None,
-            after_hash=None,
-            payload={"tier": tier, "rationale": rationale or ""},
-        )
-
-        # Transition back to RUNNING for execution
-        self._safe_transition(
-            task.task_id, TaskState.AWAITING_OWNER_APPROVAL, TaskState.RUNNING,
-            actor=approver, reason=f"approved by {approver}; tier={tier}",
-        )
-
-        backend = self._dispatcher._registry.get("claude-p")
-        scratch = Path(self._wt_mgr._dir) / task.task_id
-        scratch.mkdir(parents=True, exist_ok=True)
-
-        self._execute_ops_and_finalize(
+        from . import ops_phase
+        return ops_phase._handle_approval_impl(
             task=task,
-            spec=spec,
-            tier=tier,
-            before_snap=before_snap,
-            scratch=scratch,
-            backend=backend,
+            approver=approver,
+            decision=decision,
+            approver_role=approver_role,
+            rationale=rationale,
+            services=self._services,
         )
-
-        return self._store.get_task(task.task_id)
 
     # ------------------------------------------------------------------
     # Approval handling
@@ -1100,125 +396,18 @@ class TaskRouter:
         if task is None:
             raise ValueError(f"task not found: {task_id}")
 
-        # Content workflow approval: send draft to destination channel or cancel.
         # Ops workflow: AWAITING_OWNER_APPROVAL
         if task.state == TaskState.AWAITING_OWNER_APPROVAL and task.workflow == "ops":
-            payload = task.raw_payload or {}
-            tier = payload.get("risk_tier", "medium")
-            # Map ApprovalDecision to _handle_ops_approval params
-            decision_str = "approve" if decision.approved else "reject"
-            # Infer approver_role from sender_role on the task (original requester role
-            # is the lower bound; the API caller may supply a higher-privilege approver).
-            # For safety we default to "teammate" unless the ApprovalDecision carries the
-            # approver's role in the gate field (gate encodes the required role tier).
-            approver_role = "owner" if decision.gate in ("owner", "critical") else "teammate"
-            return self._handle_ops_approval(
-                task=task,
-                approver=decision.approver,
-                decision=decision_str,
-                approver_role=approver_role,
-                rationale=decision.reason,
-            )
+            from . import ops_phase
+            return ops_phase.handle_approval(task, decision, self._services)
 
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "content":
-            if not decision.approved:
-                self._safe_transition(
-                    task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.CANCELLED,
-                    actor=decision.approver,
-                    reason=decision.reason or "rejected",
-                )
-                return self._store.get_task(task_id)
-
-            # Approved — send the draft to the destination
-            import re as _re
-            payload = task.raw_payload or {}
-            draft_path_str = payload.get("draft_path")
-            send_dest = payload.get("send_destination", "")
-            platform = payload.get("platform", "generic")
-
-            if draft_path_str:
-                draft_text = Path(draft_path_str).read_text()
-                # MVP: Telegram only — extract chat_id from send_destination string
-                m = _re.search(r"chat_id\s+(\d+)", send_dest)
-                if m and platform == "telegram":
-                    chat_id = m.group(1)
-                    try:
-                        ch = self._channels.get("telegram") if self._channels else None
-                        if ch:
-                            ch.send(channel=chat_id, body=draft_text)
-                    except Exception:
-                        pass  # best-effort; memory event captures it
-                else:
-                    # Non-Telegram platform — defer and log
-                    self._memory.emit(
-                        source="orchestrator", event_type="content_send_deferred",
-                        subject=task_id,
-                        body=(
-                            f"Send to {send_dest!r} (platform={platform}) deferred — "
-                            "Phase 4 MVP supports Telegram only"
-                        ),
-                        dedup_key=f"orch-{task_id}-send-deferred", importance="warm",
-                    )
-
-            self._safe_transition(
-                task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.COMPLETED,
-                actor=decision.approver, reason="sent",
-            )
-            self._memory.emit(
-                source="orchestrator", event_type="content_sent",
-                subject=task_id, body=f"Content approved and sent to {send_dest!r}",
-                dedup_key=f"orch-{task_id}-sent", importance="warm",
-            )
-            return self._store.get_task(task_id)
+            from . import content_phase
+            return content_phase.handle_approval(task, decision, self._services)
 
         if task.state == TaskState.FINAL_APPROVAL_PENDING and task.workflow == "dev":
-            if not decision.approved:
-                self._safe_transition(
-                    task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.CANCELLED,
-                    actor=decision.approver,
-                    reason=decision.reason or "rejected",
-                )
-                return self._store.get_task(task_id)
-
-            # Merge the PR
-            pr_url = (task.raw_payload or {}).get("pr_url")
-            if pr_url:
-                from .pr import merge_pr, pr_number_from_url
-                try:
-                    pr_num = pr_number_from_url(pr_url)
-                    repo_path = self._repo_path_for_workflow(task.workflow)
-                    merged = merge_pr(repo_path=Path(repo_path), pr_number=pr_num)
-                except Exception:
-                    merged = False
-
-                if merged:
-                    self._safe_transition(
-                        task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.COMPLETED,
-                        actor=decision.approver,
-                        reason=f"PR #{pr_num} merged",
-                    )
-                    self._memory.emit(
-                        source="orchestrator",
-                        event_type="pr_merged",
-                        subject=task_id,
-                        body=f"PR #{pr_num} merged",
-                        dedup_key=f"orch-{task_id}-merged",
-                        importance="warm",
-                    )
-                else:
-                    self._safe_transition(
-                        task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.FAILED,
-                        actor=decision.approver,
-                        reason="merge failed",
-                    )
-            else:
-                # No PR URL stored (fallback path that still ended up at FINAL_APPROVAL_PENDING)
-                self._safe_transition(
-                    task_id, TaskState.FINAL_APPROVAL_PENDING, TaskState.COMPLETED,
-                    actor=decision.approver,
-                    reason="approved (no PR; MVP fallback)",
-                )
-            return self._store.get_task(task_id)
+            from . import dev_phase
+            return dev_phase.handle_approval(task, decision, self._services)
 
         raise NotImplementedError(
             f"approval for task {task_id!r} in state {task.state!r} "
@@ -1387,12 +576,3 @@ class TaskRouter:
             return ""
 
 
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
-
-def _slugify_for_content(text: str) -> str:
-    """Return a filesystem-safe slug from a content title (max 64 chars)."""
-    import re
-    s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
-    return s[:64] or "untitled"
