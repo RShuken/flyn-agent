@@ -355,30 +355,6 @@ class TaskRouter:
         from . import ops_phase
         ops_phase.run(task, self._services)
 
-    def _handle_ops_approval(
-        self,
-        task: TaskRecord,
-        approver: str,
-        decision: str,
-        *,
-        approver_role: str = "owner",
-        rationale: Optional[str] = None,
-    ) -> TaskRecord:
-        """Thin delegation shim — preserves the old private signature for tests.
-
-        Delegates to ops_phase._handle_approval_impl so the auth gate logic
-        lives in exactly one place.
-        """
-        from . import ops_phase
-        return ops_phase._handle_approval_impl(
-            task=task,
-            approver=approver,
-            decision=decision,
-            approver_role=approver_role,
-            rationale=rationale,
-            services=self._services,
-        )
-
     # ------------------------------------------------------------------
     # Approval handling
     # ------------------------------------------------------------------

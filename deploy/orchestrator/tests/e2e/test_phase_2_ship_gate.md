@@ -148,7 +148,7 @@ If all 8 steps pass, Phase 2 is shipped per spec §8: a real claude-p worker bui
 - Real PM-role LLM invocation (currently synthesizes a minimal plan dict from the intent; the PM prompt exists but isn't yet called)
 - Multi-builder parallelism with file-domain locks (`LockManager` is built but not wired into `WorkerDispatcher`)
 - TelegramChannelAdapter walk-me-through trigger detection (the `generate_walkthrough` function is built but no trigger detection in `ingest()` yet)
-- Router refactor (router.py is 607 lines; extract `_run_dev_pr_phase` and `handle_approval` into a separate module)
+- ~~Router refactor (router.py is 607 lines; extract `_run_dev_pr_phase` and `handle_approval` into a separate module)~~ — **DONE 2026-05-16** (Phase 2c PR #8 merged; router.py at 578 lines; phase logic in `research_phase.py`/`content_phase.py`/`ops_phase.py`/`dev_phase.py`)
 - Architect + Sanitizer roles (spec lists them; not yet implemented)
 - Real preview-URL pipeline (Vercel/Cloudflare project tokens are in auth-profiles but the PR body doesn't pull them yet)
 
