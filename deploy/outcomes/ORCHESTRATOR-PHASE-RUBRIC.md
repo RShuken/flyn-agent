@@ -23,12 +23,12 @@
 | **4 — Content workflow** | ✅ SHIPPED 2026-05-15 | 8/8 | branch `feat/orchestrator-phase-4`; 161 tests; content.yaml + 5 prompts + content.py + formatting.py + router branch + send-via-X approval (Telegram MVP) |
 | **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 8/9 + 1 🟡 | PR #7 merged at `e683d86`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation. 🟡 = ship-gate Procedure C awaits Ryan-on-live |
 | **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
-| **7 — Multi-PM** | ⬜ NOT STARTED | 0/6 | depends on Cora PM existing + Phase 1 |
+| **7 — Multi-PM** | 🟡 PARTIAL | 3/6 (50%) | branch `feat/orchestrator-phase-7-partial`; 249 tests; OLWikiPMAdapter + WebhookPMAdapter + conformance suite. 7.3/7.4/7.6 block on Cora PM |
 | **Cross-cutting** | 🟡 PARTIAL | 4/9 | runs throughout |
 
-**Overall completion: 70/87 criteria (80%)** — Phase 0-5 shipped. Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines.
+**Overall completion: 73/87 criteria (84%)** — Phase 0-5 shipped + Phase 7 partial (3 criteria). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite (249 tests).
 
-Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 3 Phase 7 criteria (7.1 OLWikiPMAdapter, 7.2 conformance, 7.5 generic webhook PMAdapter) AND 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
+Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
 **Critical-path dependencies** (must complete in order):
 1. ✅ Phase 0 → Phase 1 (router is live; merge PR #1 to unblock Phase 1 baseline)
@@ -218,14 +218,14 @@ Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external 
 
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
-| 7.1 | `OLWikiPMAdapter` wraps existing OL wiki API (`:8200`) | ⬜ | | Quick win — wiki already exists |
-| 7.2 | OLWikiPMAdapter passes contract conformance suite | ⬜ | | |
+| 7.1 | `OLWikiPMAdapter` wraps existing OL wiki API (`:8200`) | ✅ | `adapters/pm/olwiki.py`; POSTs to `POST /api/decisions`; stub-graceful on HTTP failure; `test_olwiki_adapter.py` (12 tests) | |
+| 7.2 | OLWikiPMAdapter passes contract conformance suite | ✅ | `test_pm_adapter_conformance.py` parametrized over LinearPMAdapter, OLWikiPMAdapter, WebhookPMAdapter (29 tests covering protocol, name, configured, create_task, update_state, link_artifact, comment_on_task, best-effort HTTP) | |
 | 7.3 | `CoraPMAdapter` against Cora's PM system | ⬜ | | **Blocks on Cora PM existing as a system** |
-| 7.4 | CoraPMAdapter passes contract conformance suite | ⬜ | | |
-| 7.5 | Generic webhook-based `PMAdapter` for future dashboards | ⬜ | | |
-| 7.6 | E2E: task mirrors to Linear AND Cora PM with same ID; stays in sync | ⬜ | | |
+| 7.4 | CoraPMAdapter passes contract conformance suite | ⬜ | | Blocks on 7.3 |
+| 7.5 | Generic webhook-based `PMAdapter` for future dashboards | ✅ | `adapters/pm/webhook.py`; posts JSON events (task_created, state_changed, artifact_linked, comment_added) to configurable URL; optional X-Flyn-Secret header; `test_webhook_adapter.py` (16 tests) | |
+| 7.6 | E2E: task mirrors to Linear AND Cora PM with same ID; stays in sync | ⬜ | | Blocks on 7.3 |
 
-**Score: 0/6** — Cora PM blocks on external dev.
+**Score: 3/6 (50%)** — 7.1, 7.2, 7.5 shipped on branch `feat/orchestrator-phase-7-partial`. 7.3/7.4/7.6 block on Cora PM existing as an external system.
 
 ---
 
