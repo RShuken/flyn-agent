@@ -221,3 +221,64 @@ class TestOLWikiRead:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             r = OLWikiRead(url="http://t", pin="1080", http=client)
             assert await r.query("anything") == []
+class TestOCWMemRead:
+    @pytest.mark.asyncio
+    async def test_runs_search_command_and_parses_json(self, monkeypatch):
+        from flyn_memory_router.adapters import ocw_mem_read
+        import subprocess
+
+        fake_stdout = json.dumps({
+            "results": [
+                {"text": "Beth = COO", "score": 0.7, "file": "/path/MEMORY.md", "line": 42},
+            ]
+        })
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=0, stdout=fake_stdout, stderr="",
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        r = ocw_mem_read.OCWMemRead()
+        hits = await r.query("Beth")
+        assert len(hits) == 1
+        assert hits[0].source == "ocw_mem"
+        assert hits[0].metadata.get("line") == 42
+
+    @pytest.mark.asyncio
+    async def test_nonzero_returncode_yields_empty(self, monkeypatch):
+        from flyn_memory_router.adapters import ocw_mem_read
+        import subprocess
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(args=args[0], returncode=1, stdout="", stderr="boom")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert await ocw_mem_read.OCWMemRead().query("Beth") == []
+
+    @pytest.mark.asyncio
+    async def test_missing_binary_returns_empty(self, monkeypatch):
+        from flyn_memory_router.adapters import ocw_mem_read
+        import subprocess
+
+        def fake_run(*args, **kwargs):
+            raise FileNotFoundError("no such binary")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert await ocw_mem_read.OCWMemRead().query("Beth") == []
+
+
+class TestLosslessRead:
+    def test_default_excluded(self):
+        from flyn_memory_router.adapters.lossless_read import LosslessRead
+        assert LosslessRead().default_included is False
+
+    def test_grep_session_logs(self, tmp_path: Path):
+        from flyn_memory_router.adapters.lossless_read import LosslessRead
+        (tmp_path / "session-2026-05-13.jsonl").write_text(
+            json.dumps({"role": "user", "content": "What's Beth's role?"}) + "\n"
+            + json.dumps({"role": "assistant", "content": "Beth is COO Cora."}) + "\n"
+        )
+        hits = asyncio.run(LosslessRead(sessions_dir=tmp_path).query("Beth"))
+        assert len(hits) == 2
+        assert all(h.source == "lossless" for h in hits)
