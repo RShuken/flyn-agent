@@ -187,3 +187,37 @@ class TestUserRead:
         from flyn_memory_router.adapters.user_read import UserRead
         hits = asyncio.run(UserRead(auto_memory_dir=memdir).query("Beth"))
         assert all("MEMORY.md" not in h.metadata.get("file", "") for h in hits)
+
+
+class TestOLWikiRead:
+    @pytest.mark.asyncio
+    async def test_sends_pin_header_and_returns_hits(self):
+        from flyn_memory_router.adapters.ol_wiki_read import OLWikiRead
+        import httpx
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("X-OL-Wiki-Pin") == "1080"
+            assert request.url.params["q"] == "Linear"
+            return httpx.Response(200, json={"results": [
+                {"id": "Q-42", "section": "I", "question": "Linear plan?",
+                 "answer": "Free tier blocks at 250.", "score": 0.85},
+            ]})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            r = OLWikiRead(url="http://test-olwiki", pin="1080", http=client)
+            hits = await r.query("Linear")
+        assert len(hits) == 1
+        assert hits[0].source == "ol_wiki"
+        assert hits[0].metadata.get("question_id") == "Q-42"
+
+    @pytest.mark.asyncio
+    async def test_5xx_returns_empty(self):
+        from flyn_memory_router.adapters.ol_wiki_read import OLWikiRead
+        import httpx
+
+        async def handler(request):
+            return httpx.Response(503, json={"detail": "down"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            r = OLWikiRead(url="http://t", pin="1080", http=client)
+            assert await r.query("anything") == []
