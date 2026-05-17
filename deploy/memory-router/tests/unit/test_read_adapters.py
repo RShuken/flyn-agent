@@ -47,3 +47,63 @@ class TestHotRead:
             pin_file=tmp_path / "missing.json",
         ).query("anything"))
         assert hits == []
+
+
+class TestWarmRead:
+    @pytest.mark.asyncio
+    async def test_calls_graphiti_and_returns_hits(self, tmp_path: Path):
+        from flyn_memory_router.adapters.warm_read import WarmRead
+        import httpx
+
+        fixture_path = Path(__file__).parent.parent / "fixtures" / "mock_graphiti_search.json"
+        fixture = json.loads(fixture_path.read_text())
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/api/search"
+            assert request.url.params["q"] == "Beth"
+            return httpx.Response(200, json=fixture)
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            wr = WarmRead(
+                graphiti_url="http://test-graphiti",
+                workspace_memory_dir=tmp_path,
+                http=client,
+            )
+            hits = await wr.query("Beth")
+
+        graphiti_hits = [h for h in hits if h.source == "warm/graphiti"]
+        assert len(graphiti_hits) >= 2
+        assert graphiti_hits[0].metadata.get("canonical_id") == "ep-1"
+
+    @pytest.mark.asyncio
+    async def test_workspace_memory_grep_returns_hits(self, tmp_path: Path):
+        from flyn_memory_router.adapters.warm_read import WarmRead
+        import httpx
+
+        (tmp_path / "2026-05-13.md").write_text("Beth status: PM. Linear: 73/124.")
+
+        async def handler(request):
+            return httpx.Response(200, json={"results": []})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            wr = WarmRead(graphiti_url="http://t", workspace_memory_dir=tmp_path, http=client)
+            hits = await wr.query("Beth")
+        ws_hits = [h for h in hits if h.source == "warm/workspace"]
+        assert len(ws_hits) == 1
+        assert "Linear" in ws_hits[0].text
+
+    @pytest.mark.asyncio
+    async def test_graphiti_5xx_does_not_block_workspace_grep(self, tmp_path: Path):
+        from flyn_memory_router.adapters.warm_read import WarmRead
+        import httpx
+
+        (tmp_path / "x.md").write_text("Beth note")
+
+        async def handler(request):
+            return httpx.Response(503, json={"detail": "unavailable"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            wr = WarmRead(graphiti_url="http://t", workspace_memory_dir=tmp_path, http=client)
+            hits = await wr.query("Beth")
+        assert any(h.source == "warm/workspace" for h in hits)

@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "uuid": "ep-1",
+      "name": "Beth intro",
+      "summary": "Beth Kukla, co-founder + COO Cora; PM for OpenLit phase 2.",
+      "score": 0.94
+    },
+    {
+      "uuid": "ep-2",
+      "name": "Linear sync update",
+      "summary": "73/124 OL questions synced; remaining 51 blocked.",
+      "score": 0.81
+    }
+  ]
+}
