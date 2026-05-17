@@ -83,3 +83,39 @@ class EventResult(BaseModel):
     importance: Importance
     tiers_written: list[Tier]
     notes: list[str] = Field(default_factory=list)
+
+
+class Hit(BaseModel):
+    """One ranked retrieval result returned by a ReadAdapter."""
+
+    text: str = Field(..., min_length=1, max_length=8000)
+    source: str = Field(
+        ..., min_length=1, max_length=64,
+        description="namespaced: 'hot/MEMORY.md', 'warm/graphiti', 'reference/wiki', ...",
+    )
+    score: float = Field(..., description="adapter-native score; RRF re-ranks across sources")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceError(BaseModel):
+    source: str
+    error_class: str       # "timeout" | "exception" | "malformed"
+    message: str = ""
+
+
+class QueryResult(BaseModel):
+    query_id: str
+    hits: list[Hit] = Field(default_factory=list)
+    source_errors: list[SourceError] = Field(default_factory=list)
+    elapsed_ms: int
+
+
+class LintFinding(BaseModel):
+    entity: str
+    sources: dict[str, str]
+    divergence: str
+    suggested_fix: str = ""
+
+
+class LintReport(BaseModel):
+    findings: list[LintFinding] = Field(default_factory=list)
