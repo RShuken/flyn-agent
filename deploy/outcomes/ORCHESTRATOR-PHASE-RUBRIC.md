@@ -22,11 +22,11 @@
 | **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
 | **4 — Content workflow** | ✅ SHIPPED 2026-05-15 | 8/8 | branch `feat/orchestrator-phase-4`; 161 tests; content.yaml + 5 prompts + content.py + formatting.py + router branch + send-via-X approval (Telegram MVP) |
 | **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 8/9 + 1 🟡 | PR #7 merged at `e683d86`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation. 🟡 = ship-gate Procedure C awaits Ryan-on-live |
-| **6 — Multi-channel** | ⬜ NOT STARTED | 0/8 | depends on Phase 1 + DNS provisioning |
+| **6 — Multi-channel** | 🟡 PARTIAL | 4/8 | branch `feat/orchestrator-phase-6-partial`; 325 tests; EmailChannelAdapter + SPF/DKIM + injection-detection + subject-tag docs. Live blocked on DNS + Workspace OAuth |
 | **7 — Multi-PM** | 🟡 PARTIAL | 3/6 (50%) | branch `feat/orchestrator-phase-7-partial`; 249 tests; OLWikiPMAdapter + WebhookPMAdapter + conformance suite. 7.3/7.4/7.6 block on Cora PM |
 | **Cross-cutting** | 🟡 PARTIAL | 7/8 (87%) | PR #12 — RESUME-HERE refresh + 4 new KNOWLEDGE entries (18/19/20/21) + retroactive CHANGELOG.md for PRs #1-#11. Only X.2 (audit/_baseline.md) remains. |
 
-**Overall completion: 76/87 criteria (87%)** — Phase 0-5 shipped + Phase 7 partial (3 criteria) + cross-cutting hygiene (3 criteria, PR #12). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite (249 tests).
+**Overall completion: 80/87 criteria (92%)** — Phase 0-5 shipped + Phase 6 partial (4 criteria) + Phase 7 partial (3 criteria) + cross-cutting hygiene (3 criteria, PR #12). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 6 partial: EmailChannelAdapter + SPF/DKIM + injection-detection + subject-tag docs (325 tests). Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite.
 
 Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
@@ -201,14 +201,14 @@ Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external 
 |---|---|---|---|---|
 | 6.1 | `GoogleChatChannelAdapter` passes adapter contract conformance suite | ⬜ | | Workspace OAuth needed |
 | 6.2 | Google Workspace OAuth + workspace member verification working | ⬜ | | **Blocks on external setup** |
-| 6.3 | `EmailChannelAdapter` IMAP/SMTP for `flynn@getcora.io` | ⬜ | | |
+| 6.3 | `EmailChannelAdapter` IMAP/SMTP for `flynn@getcora.io` | ✅ | `adapters/channels/email.py`; ingest/send/approve_button; injected smtp_sender/imap_fetcher callables for tests; best-effort guarantee; 325 tests | — |
 | 6.4 | DNS + SPF + DKIM provisioned for `getcora.io` outbound mail | ⬜ | | **Blocks on Ryan provisioning DNS records** |
-| 6.5 | SPF/DKIM verification on inbound; failed-auth → rejected unless sender in CONTACTS | ⬜ | | |
-| 6.6 | Subject-line tagging convention (`[FLYN-TASK]` etc) documented | ⬜ | | |
-| 6.7 | Email-based prompt injection detection (per spec §7 injection-detector) running on inbound bodies | ⬜ | | |
-| 6.8 | E2E: round-trip Google Chat → orchestrator → response; round-trip email via flynn@getcora.io | ⬜ | | |
+| 6.5 | SPF/DKIM verification on inbound; failed-auth → rejected unless sender in CONTACTS | ✅ | `adapters/channels/email_auth.py`; `parse_authentication_results` + `verify_email_auth`; allowlist bypasses auth; both-unknown → reject; `test_email_auth.py` (17 tests) | — |
+| 6.6 | Subject-line tagging convention (`[FLYN-TASK]` etc) documented | ✅ | `adapters/channels/email_subject.py` (parse_subject/format_subject/TAG_*); `docs/email-subject-tags.md` (tag ref, auth requirements, injection-detection notes, false-positive guidance) | — |
+| 6.7 | Email-based prompt injection detection (per spec §7 injection-detector) running on inbound bodies | ✅ | `adapters/channels/injection_detect.py`; 8 pattern families + zero-width + base64-blob + excessive-whitespace; `test_injection_detect.py` (22 tests); called in `EmailChannelAdapter.ingest()` before routing | — |
+| 6.8 | E2E: round-trip Google Chat → orchestrator → response; round-trip email via flynn@getcora.io | ⬜ | | Blocks on DNS + Workspace OAuth |
 
-**Score: 0/8 ⬜** — not started. Blocked on external setup (Google Workspace OAuth + DNS provisioning for `getcora.io`). Some criteria (6.3 EmailChannelAdapter code, 6.5 SPF/DKIM verification logic, 6.6 subject-line tagging docs, 6.7 injection-detection code) are autonomously buildable today against stub IMAP/SMTP and would unblock the moment Ryan provisions DNS.
+**Score: 4/8 🟡 (build complete; live blocked on DNS + Workspace OAuth)** — 6.3 / 6.5 / 6.6 / 6.7 shipped 2026-05-16 on branch `feat/orchestrator-phase-6-partial`. 6.1 / 6.2 / 6.4 / 6.8 block on external setup (Google Workspace OAuth + DNS provisioning for `getcora.io`).
 
 ---
 
