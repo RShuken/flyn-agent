@@ -75,6 +75,49 @@ def _cmd_health(args, client_factory) -> int:
     return 0
 
 
+def _cmd_logs(args, client_factory) -> int:
+    import datetime
+    from .config import Config
+    log_dir = Config.from_env().log_dir
+    if args.query_id:
+        _dump_correlated(log_dir, args.query_id)
+        return 0
+    today_q = log_dir / f"query-{datetime.date.today().isoformat()}.jsonl"
+    if not today_q.exists():
+        print("(no log for today)")
+        return 0
+    lines = today_q.read_text().splitlines()
+    for line in lines[-args.tail:]:
+        rec = json.loads(line)
+        if args.grep and args.grep.lower() not in line.lower():
+            continue
+        if args.errors and not any(v.get("error") for v in rec.get("per_source", {}).values()):
+            continue
+        print(f"{rec.get('ts', '')}  {rec['query_id']}  {rec['total_elapsed_ms']}ms  {rec['q']}")
+    return 0
+
+
+def _dump_correlated(log_dir, query_id: str) -> None:
+    print(f"=== query {query_id} ===")
+    for f in sorted(log_dir.glob("query-*.jsonl")):
+        for line in f.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("query_id") == query_id:
+                print(json.dumps(rec, indent=2))
+    print(f"=== errors for {query_id} ===")
+    for f in sorted(log_dir.glob("source-errors-*.jsonl")):
+        for line in f.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("query_id") == query_id:
+                print(json.dumps(rec, indent=2))
+
+
 def _cmd_sources(args, client_factory) -> int:
     try:
         with client_factory() as c:
@@ -96,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--json", dest="json_out", action="store_true")
     sub.add_parser("health", help="overall + per-source health")
     sub.add_parser("sources", help="full sources registry (JSON)")
+    lg = sub.add_parser("logs", help="tail query log")
+    lg.add_argument("--query-id", dest="query_id", default=None)
+    lg.add_argument("--grep", default=None)
+    lg.add_argument("--errors", action="store_true")
+    lg.add_argument("--tail", type=int, default=20)
     return p
 
 
@@ -108,6 +156,7 @@ def main(argv: list[str] | None = None,
         "query": _cmd_query,
         "health": _cmd_health,
         "sources": _cmd_sources,
+        "logs": _cmd_logs,
     }
     fn = dispatch.get(args.cmd)
     if fn is None:

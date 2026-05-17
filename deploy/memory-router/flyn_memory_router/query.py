@@ -81,7 +81,26 @@ import uuid as _uuid
 
 from .config import Config, READ_SOURCES, ReadSourceConfig
 from .health_tracker import TRACKER
+from .logging_contract import QueryLogWriter, SourceErrorLogWriter
 from .types import QueryResult, SourceError
+
+
+_QLOG: QueryLogWriter | None = None
+_ELOG: SourceErrorLogWriter | None = None
+
+
+def _qlog() -> QueryLogWriter:
+    global _QLOG
+    if _QLOG is None:
+        _QLOG = QueryLogWriter(log_dir=Config.from_env().log_dir)
+    return _QLOG
+
+
+def _elog() -> SourceErrorLogWriter:
+    global _ELOG
+    if _ELOG is None:
+        _ELOG = SourceErrorLogWriter(log_dir=Config.from_env().log_dir)
+    return _ELOG
 
 
 def _resolve_class(cls_path: str):
@@ -175,4 +194,18 @@ async def query(q: str,
 
     merged = rrf_merge(per_source, top_k=top_k)
     elapsed = int((time.monotonic() - start) * 1000)
+    _qlog().write({
+        "query_id": qid,
+        "q": q,
+        "caller": "rest",
+        "included_sources": [a.name for a in adapters],
+        "per_source": {a.name: {"hits": len(per_source.get(a.name, [])),
+                                 "error": next((e.error_class for e in errors if e.source == a.name), None)}
+                       for a in adapters},
+        "top_k": top_k,
+        "total_elapsed_ms": elapsed,
+    })
+    for err in errors:
+        _elog().write(query_id=qid, source=err.source,
+                      exc=RuntimeError(f"{err.error_class}: {err.message}"))
     return QueryResult(query_id=qid, hits=merged, source_errors=errors, elapsed_ms=elapsed)
