@@ -24,9 +24,11 @@
 | **5 — Ops workflow** | ✅ SHIPPED 2026-05-15 | 8/9 + 1 🟡 | PR #7 merged at `e683d86`; 190 tests; ops.yaml + 4 prompts + risk-rules.yaml + risk_tier.py + audit.py + ops.py + router branch + tier-based approval + one-way escalation. 🟡 = ship-gate Procedure C awaits Ryan-on-live |
 | **6 — Multi-channel** | 🟡 PARTIAL | 4/8 | branch `feat/orchestrator-phase-6-partial`; 325 tests; EmailChannelAdapter + SPF/DKIM + injection-detection + subject-tag docs. Live blocked on DNS + Workspace OAuth |
 | **7 — Multi-PM** | 🟡 PARTIAL | 3/6 (50%) | branch `feat/orchestrator-phase-7-partial`; 249 tests; OLWikiPMAdapter + WebhookPMAdapter + conformance suite. 7.3/7.4/7.6 block on Cora PM |
-| **Cross-cutting** | 🟡 PARTIAL | 7/8 (87%) | PR #12 — RESUME-HERE refresh + 4 new KNOWLEDGE entries (18/19/20/21) + retroactive CHANGELOG.md for PRs #1-#11. Only X.2 (audit/_baseline.md) remains. |
+| **Cross-cutting** | ✅ COMPLETE (autonomous scope) | 8/8 (100%) | PR #12 — RESUME-HERE refresh + 4 new KNOWLEDGE entries (18/19/20/21) + retroactive CHANGELOG.md; PR #14 — `audit/_baseline.md` §Δ per-phase deltas (Δ.0 through Δ.7-partial + Δ.hygiene) |
 
-**Overall completion: 80/87 criteria (92%)** — Phase 0-5 shipped + Phase 6 partial (4 criteria) + Phase 7 partial (3 criteria) + cross-cutting hygiene (3 criteria, PR #12). Foundation + dev + research + content + ops workflows all done. Phase 2c (router refactor + cleanup, PRs #8 + #9) shipped as hygiene; no rubric row but knocked router.py from 1,398 → 554 lines. Phase 6 partial: EmailChannelAdapter + SPF/DKIM + injection-detection + subject-tag docs (325 tests). Phase 7 partial: OLWikiPMAdapter + WebhookPMAdapter + conformance suite.
+**Overall completion: 81/87 criteria (93%)** — Phase 0-5 shipped + Phase 6 partial (4 criteria) + Phase 7 partial (3 criteria) + cross-cutting complete (8/8 autonomous scope, PRs #12 + #14). All autonomously-buildable criteria across the rubric are now ✅.
+
+Remaining 6 ⬜ all require external setup (Ryan/DNS) or specific real-world events: Phase 6.1 (Google Chat OAuth), 6.2 (Workspace OAuth), 6.4 (DNS+SPF+DKIM for getcora.io), 6.8 (E2E round-trip), Phase 7.3/7.4 (Cora PM system existing), 7.6 (mirror E2E), Phase 1.8 (Watchdog — deferred until real stuck-worker incident). Plus 🟡 manual ship-gate playbooks awaiting Ryan-on-live execution.
 
 Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
@@ -236,7 +238,7 @@ These criteria are not phase-bound but should be satisfied as phases ship.
 | # | Criterion | Status | Evidence | Gap |
 |---|---|---|---|---|
 | X.1 | `RESUME-HERE.md` reflects current shipped state (no stale entries) | ✅ | Refreshed 2026-05-16 (PR #12) — added Flyn Orchestrator section reflecting Phase 0-7 shipped + live services on 4C + auth contention warning + manual ship-gates pending Ryan-on-live | — |
-| X.2 | `audit/_baseline.md` delta per phase (new patterns/threats surfaced) | ⬜ | | Deferred — `audit/_baseline.md` doesn't exist yet; create when first real security audit runs |
+| X.2 | `audit/_baseline.md` delta per phase (new patterns/threats surfaced) | ✅ | `audit/_baseline.md` §Δ section appended 2026-05-17 (PR #14) — 11 per-phase delta subsections (Δ.0 through Δ.7-partial + Δ.hygiene), each listing new patterns + new threats. Convention: each future phase PR appends its own §Δ subsection at merge time | — |
 | X.3 | `KNOWLEDGE/<NN>-<slug>.md` entries for hard-won lessons (per §10 rule) | ✅ | 18 (cross-module mock patching), 19 (test public API not internals), 20 (adapters never raise), 21 (OAuth vs API key token discrimination) added 2026-05-16 (PR #12); 15/16/17 already captured for Phase 1+1b lessons | — |
 | X.4 | Each phase's PR has a `CHANGELOG.md` entry | ✅ | `CHANGELOG.md` created 2026-05-16 (PR #12) — retroactive PR-numbered entries for PRs #1-#11; new entries added per merge going forward | — |
 | X.5 | Monthly `drill-sanitize-rescan.sh` against `borrowed/` assets | n/a Phase 1 | Phase 0 has no borrowed/ assets shipped | |
@@ -245,7 +247,7 @@ These criteria are not phase-bound but should be satisfied as phases ship.
 | X.8 | All local services bind to `127.0.0.1` (not `0.0.0.0`) | ✅ | Verified for 8100, 8200, 8400 | Will recheck for 8300 in Phase 1 |
 | X.9 | Cron registrations idempotent (`|| echo "(already registered)"`) | ✅ | `register-flyn-crons.sh` pattern | |
 
-**Score: 7 ✅ + 0 🟡 + 1 ⬜ + 1 n/a = 7/8 done** — only X.2 (`audit/_baseline.md` per-phase deltas) remains; deferred until first real security audit run
+**Score: 8 ✅ + 0 🟡 + 0 ⬜ + 1 n/a = 8/8 done** — all autonomously-buildable cross-cutting criteria shipped
 
 ---
 
