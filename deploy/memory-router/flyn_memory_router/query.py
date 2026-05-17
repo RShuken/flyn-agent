@@ -168,8 +168,10 @@ async def query(q: str,
         return QueryResult(query_id=qid, hits=[], source_errors=[], elapsed_ms=0)
 
     async def _one(adapter):
-        return await asyncio.wait_for(adapter.query(q, top_k=top_k),
+        t0 = time.monotonic()
+        hits = await asyncio.wait_for(adapter.query(q, top_k=top_k),
                                        timeout=adapter.read_timeout)
+        return hits, int((time.monotonic() - t0) * 1000)
 
     results = await asyncio.gather(
         *[_one(a) for a in adapters],
@@ -177,20 +179,26 @@ async def query(q: str,
     )
 
     per_source: dict[str, list[Hit]] = {}
+    per_source_ms: dict[str, int | None] = {}
     errors: list[SourceError] = []
     for adapter, result in zip(adapters, results):
         if isinstance(result, asyncio.TimeoutError):
-            TRACKER.record(adapter.name, elapsed_ms=int(adapter.read_timeout * 1000), error=True)
+            per_source_ms[adapter.name] = int(adapter.read_timeout * 1000)
+            TRACKER.record(adapter.name, elapsed_ms=per_source_ms[adapter.name], error=True)
             errors.append(SourceError(source=adapter.name, error_class="timeout",
                                        message=f"{adapter.read_timeout}s"))
             continue
         if isinstance(result, Exception):
+            per_source_ms[adapter.name] = None
             TRACKER.record(adapter.name, elapsed_ms=0, error=True)
             errors.append(SourceError(source=adapter.name, error_class="exception",
                                        message=f"{type(result).__name__}: {result}"))
             continue
-        TRACKER.record(adapter.name, elapsed_ms=int((time.monotonic() - start) * 1000), error=False)
-        per_source[adapter.name] = result
+        # result is (hits, ms)
+        hits, ms = result
+        per_source_ms[adapter.name] = ms
+        TRACKER.record(adapter.name, elapsed_ms=ms, error=False)
+        per_source[adapter.name] = hits
 
     merged = rrf_merge(per_source, top_k=top_k)
     elapsed = int((time.monotonic() - start) * 1000)
@@ -200,6 +208,7 @@ async def query(q: str,
         "caller": "rest",
         "included_sources": [a.name for a in adapters],
         "per_source": {a.name: {"hits": len(per_source.get(a.name, [])),
+                                 "elapsed_ms": per_source_ms.get(a.name),
                                  "error": next((e.error_class for e in errors if e.source == a.name), None)}
                        for a in adapters},
         "top_k": top_k,
@@ -208,4 +217,5 @@ async def query(q: str,
     for err in errors:
         _elog().write(query_id=qid, source=err.source,
                       exc=RuntimeError(f"{err.error_class}: {err.message}"))
-    return QueryResult(query_id=qid, hits=merged, source_errors=errors, elapsed_ms=elapsed)
+    return QueryResult(query_id=qid, hits=merged, source_errors=errors, elapsed_ms=elapsed,
+                       included_sources=[a.name for a in adapters])

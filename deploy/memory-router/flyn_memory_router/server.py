@@ -131,6 +131,17 @@ def build_app(http_client: Any | None = None) -> FastAPI:
         result = await query_module.query(
             body.q, include=body.include, exclude=body.exclude, top_k=body.top_k
         )
+        # Catastrophic: every included adapter failed
+        if (result.source_errors and result.included_sources
+                and len(result.source_errors) == len(result.included_sources)):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "query_id": result.query_id,
+                    "source_errors": [e.model_dump() for e in result.source_errors],
+                    "included_sources": result.included_sources,
+                },
+            )
         return result.model_dump()
 
     @app.post("/api/memory/lint")

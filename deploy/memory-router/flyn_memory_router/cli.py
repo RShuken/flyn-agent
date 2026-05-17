@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import time as _time
 from typing import Callable
 
 import httpx
@@ -31,11 +32,22 @@ def _cmd_query(args, client_factory) -> int:
         payload["include"] = args.include
     if args.exclude:
         payload["exclude"] = args.exclude
+
+    def _attempt(client):
+        r = client.post("/api/memory/query", json=payload)
+        r.raise_for_status()
+        return r.json()
+
     try:
         with client_factory() as c:
-            r = c.post("/api/memory/query", json=payload)
-            r.raise_for_status()
-            data = r.json()
+            try:
+                data = _attempt(c)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code >= 500:
+                    _time.sleep(0.5)
+                    data = _attempt(c)
+                else:
+                    raise
     except httpx.ConnectError as e:
         return _connect_error(e)
     except httpx.HTTPStatusError as e:

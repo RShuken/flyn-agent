@@ -108,6 +108,7 @@ class QueryResult(BaseModel):
     hits: list[Hit] = Field(default_factory=list)
     source_errors: list[SourceError] = Field(default_factory=list)
     elapsed_ms: int
+    included_sources: list[str] = Field(default_factory=list)
 
 
 class LintFinding(BaseModel):

@@ -55,3 +55,43 @@ def test_query_top_k_clamps_results(app_with_fakes):
 def test_query_validation_rejects_empty_q(app_with_fakes):
     resp = app_with_fakes.post("/api/memory/query", json={"q": ""})
     assert resp.status_code == 422
+
+
+def test_query_records_per_source_elapsed(app_with_fakes):
+    resp = app_with_fakes.post("/api/memory/query", json={"q": "Beth"})
+    body = resp.json()
+    assert resp.status_code == 200
+    # The orchestrator records elapsed per source; verify TRACKER received a non-None value
+    from flyn_memory_router.health_tracker import TRACKER
+    for src in ("hot", "warm", "reference"):
+        snap = TRACKER.snapshot(src)
+        assert snap["last_elapsed_ms"] is not None
+
+
+@pytest.fixture
+def app_with_all_failing(monkeypatch, tmp_path):
+    from flyn_memory_router import query as query_module
+
+    class _ThrowingAdapter:
+        def __init__(self, name):
+            self.name = name
+            self.default_included = True
+            self.read_timeout = 1.0
+
+        async def query(self, q, top_k=10):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(query_module, "_load_adapters",
+                        lambda include, exclude: [_ThrowingAdapter("hot"), _ThrowingAdapter("warm")])
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path / "router"))
+    monkeypatch.setenv("FLYN_WORKSPACE", str(tmp_path / "ws"))
+    app = build_app()
+    return TestClient(app)
+
+
+def test_query_returns_502_when_all_sources_fail(app_with_all_failing):
+    resp = app_with_all_failing.post("/api/memory/query", json={"q": "test"})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert len(detail["source_errors"]) == 2
+    assert "query_id" in detail

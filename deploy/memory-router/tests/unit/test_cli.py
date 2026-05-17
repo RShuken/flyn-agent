@@ -67,3 +67,27 @@ def test_query_unreachable_prints_actionable_error(capsys):
     err = capsys.readouterr().err
     assert rc != 0
     assert "launchctl" in err
+
+
+def test_query_retries_once_on_5xx(capsys, monkeypatch):
+    from flyn_memory_router.cli import main
+    import flyn_memory_router.cli as cli_module
+
+    monkeypatch.setattr(cli_module._time, "sleep", lambda _: None)  # no real sleep in tests
+
+    call_count = {"n": 0}
+
+    def handler(request):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return httpx.Response(503, json={"detail": "unavailable"})
+        return httpx.Response(200, json={
+            "query_id": "q-y",
+            "hits": [],
+            "source_errors": [],
+            "elapsed_ms": 10,
+        })
+
+    rc = main(["query", "x"], client_factory=_client_factory(handler))
+    assert rc == 0
+    assert call_count["n"] == 2
