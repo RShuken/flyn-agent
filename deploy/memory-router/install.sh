@@ -28,6 +28,39 @@ else
 fi
 "$TARGET/.venv/bin/pip" install -e "$TARGET"
 
+# --- Read-side install steps (Task 40) ---
+
+if [[ -d /usr/local/bin && -w /usr/local/bin ]]; then
+  ln -sf "$TARGET/.venv/bin/flyn-mem" /usr/local/bin/flyn-mem
+  echo "  ✓ symlinked /usr/local/bin/flyn-mem -> $TARGET/.venv/bin/flyn-mem"
+elif sudo -n true 2>/dev/null; then
+  sudo ln -sf "$TARGET/.venv/bin/flyn-mem" /usr/local/bin/flyn-mem
+  echo "  ✓ symlinked /usr/local/bin/flyn-mem (via sudo)"
+else
+  echo "  ! cannot symlink /usr/local/bin/flyn-mem (no passwordless sudo)"
+  echo "    Run manually:  sudo ln -sf $TARGET/.venv/bin/flyn-mem /usr/local/bin/flyn-mem"
+fi
+
+"$TARGET/.venv/bin/python" - <<'PYEOF'
+from pathlib import Path
+import os
+from flyn_memory_router.discovery import (
+    write_auto_memory_pointer, append_memory_md_index, append_tools_md
+)
+
+automem = Path(os.environ.get("FLYN_AUTO_MEMORY_DIR",
+                              str(Path.home() / ".claude" / "projects" /
+                                  "-Users-4c-AI" / "memory")))
+workspace = Path(os.environ.get("FLYN_WORKSPACE",
+                                str(Path.home() / ".openclaw" / "workspace")))
+
+write_auto_memory_pointer(automem)
+append_memory_md_index(automem)
+append_tools_md(workspace)
+print(f"  ✓ auto-memory pointer at {automem}/feedback_memory_router.md")
+print(f"  ✓ TOOLS.md updated at   {workspace}/TOOLS.md")
+PYEOF
+
 # render plist
 mkdir -p "$HOME/Library/LaunchAgents"
 sed "s|{{HOME}}|$HOME|g" "$HERE/ai.flyn.memory-router.plist.template" > "$PLIST"
