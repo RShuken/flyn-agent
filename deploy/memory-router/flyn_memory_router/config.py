@@ -17,7 +17,7 @@ class Config:
     reference_vault: Path
     auto_memory_dir: Path
     ol_wiki_url: str
-    ol_wiki_pin: str
+    ol_wiki_pin: str  # auth PIN string (not a port; default "1080" is documented in OL wiki backend)
 
     @property
     def db_path(self) -> Path:
@@ -80,14 +80,14 @@ class ReadSourceConfig:
 
 
 READ_SOURCES: dict[str, ReadSourceConfig] = {
-    "hot":       ReadSourceConfig("hot",       "flyn_memory_router.adapters.hot_read:HotRead",             1.0, True),
-    "warm":      ReadSourceConfig("warm",      "flyn_memory_router.adapters.warm_read:WarmRead",           2.0, True),
-    "cool":      ReadSourceConfig("cool",      "flyn_memory_router.adapters.cool_read:CoolRead",           1.0, True),
-    "cold":      ReadSourceConfig("cold",      "flyn_memory_router.adapters.cold_read:ColdRead",           1.0, True),
-    "lesson":    ReadSourceConfig("lesson",    "flyn_memory_router.adapters.lesson_read:LessonRead",       1.0, True),
-    "reference": ReadSourceConfig("reference", "flyn_memory_router.adapters.reference_read:ReferenceRead", 1.5, True),
-    "user":      ReadSourceConfig("user",      "flyn_memory_router.adapters.user_read:UserRead",           1.0, True),
-    "ol_wiki":   ReadSourceConfig("ol_wiki",   "flyn_memory_router.adapters.ol_wiki_read:OLWikiRead",      2.0, True),
-    "ocw_mem":   ReadSourceConfig("ocw_mem",   "flyn_memory_router.adapters.ocw_mem_read:OCWMemRead",      3.0, False),
-    "lossless":  ReadSourceConfig("lossless",  "flyn_memory_router.adapters.lossless_read:LosslessRead",   3.0, False),
+    "hot":       ReadSourceConfig(name="hot",       cls_path="flyn_memory_router.adapters.hot_read:HotRead",             timeout=1.0, default_included=True),
+    "warm":      ReadSourceConfig(name="warm",      cls_path="flyn_memory_router.adapters.warm_read:WarmRead",           timeout=2.0, default_included=True),
+    "cool":      ReadSourceConfig(name="cool",      cls_path="flyn_memory_router.adapters.cool_read:CoolRead",           timeout=1.0, default_included=True),
+    "cold":      ReadSourceConfig(name="cold",      cls_path="flyn_memory_router.adapters.cold_read:ColdRead",           timeout=1.0, default_included=True),
+    "lesson":    ReadSourceConfig(name="lesson",    cls_path="flyn_memory_router.adapters.lesson_read:LessonRead",       timeout=1.0, default_included=True),
+    "reference": ReadSourceConfig(name="reference", cls_path="flyn_memory_router.adapters.reference_read:ReferenceRead", timeout=1.5, default_included=True),
+    "user":      ReadSourceConfig(name="user",      cls_path="flyn_memory_router.adapters.user_read:UserRead",           timeout=1.0, default_included=True),
+    "ol_wiki":   ReadSourceConfig(name="ol_wiki",   cls_path="flyn_memory_router.adapters.ol_wiki_read:OLWikiRead",      timeout=2.0, default_included=True),
+    "ocw_mem":   ReadSourceConfig(name="ocw_mem",   cls_path="flyn_memory_router.adapters.ocw_mem_read:OCWMemRead",      timeout=3.0, default_included=False),
+    "lossless":  ReadSourceConfig(name="lossless",  cls_path="flyn_memory_router.adapters.lossless_read:LosslessRead",   timeout=3.0, default_included=False),
 }

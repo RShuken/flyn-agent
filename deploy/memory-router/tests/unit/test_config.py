@@ -56,7 +56,8 @@ def test_read_sources_defaults_excluded_heavies():
     assert READ_SOURCES["hot"].default_included is True
 
 
-def test_read_source_config_has_log_paths():
-    from flyn_memory_router.config import Config
+def test_config_has_log_dir_path(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path))
     cfg = Config.from_env()
     assert cfg.log_dir.name == "logs"
+    assert cfg.log_dir == tmp_path / "logs"
