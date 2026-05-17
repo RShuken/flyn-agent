@@ -16,6 +16,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from . import lint as lint_module
 from . import query as query_module
 from .adapters import AdapterRegistry
 from .adapters.cold import ColdCapturesIndexAdapter
@@ -27,7 +28,7 @@ from .config import Config
 from .dedup import DedupStore
 from .pin import PinRequest, pin_permanent, unpin
 from .router import Router
-from .types import EventResult, InboundEvent, Tier
+from .types import EventResult, Hit, InboundEvent, Tier
 
 
 class _PinBody(BaseModel):
@@ -45,6 +46,11 @@ class _QueryBody(BaseModel):
     include: list[str] | None = None
     exclude: list[str] | None = None
     top_k: int = Field(10, ge=1, le=100)
+
+
+class _LintBody(BaseModel):
+    entities: list[str] = Field(..., min_length=1, max_length=100)
+    sources: list[str] | None = None
 
 
 def build_app(http_client: Any | None = None) -> FastAPI:
@@ -125,5 +131,17 @@ def build_app(http_client: Any | None = None) -> FastAPI:
             body.q, include=body.include, exclude=body.exclude, top_k=body.top_k
         )
         return result.model_dump()
+
+    @app.post("/api/memory/lint")
+    async def lint_route(body: _LintBody) -> dict[str, Any]:
+        findings = []
+        for entity in body.entities:
+            result = await query_module.query(entity, include=body.sources, top_k=3)
+            per_source: dict[str, list[Hit]] = {}
+            for h in result.hits:
+                per_source.setdefault(h.source, []).append(h)
+            ent_findings = await lint_module.detect_drift(entity, per_source)
+            findings.extend(ent_findings)
+        return {"findings": [f.model_dump() for f in findings]}
 
     return app
