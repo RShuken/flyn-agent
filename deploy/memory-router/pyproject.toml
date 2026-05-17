@@ -19,6 +19,9 @@ dependencies = [
   "pyyaml>=6.0",
 ]
 
+[project.scripts]
+flyn-mem = "flyn_memory_router.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
