@@ -632,6 +632,149 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 ### Reddit (5 verbatim, rest secondary)
 - `r/openclaw/comments/1r0wks3`, `1rtpk8e`, `1rc06ee`, `1rlc7fr`
 - `r/clawdbot/comments/1rs7yns`
+
+---
+
+## §Δ Phase deltas — Flyn Orchestrator build (2026-05-15 → 2026-05-17)
+
+> Per-phase additions to the baseline. Each entry lists **new patterns** introduced by the phase (positive) and **new threats** surfaced (warnings). Future audits grade phases against the baseline AT THEIR SHIP DATE — not the latest. Entries are append-only.
+>
+> Naming convention: `§Δ.<phase-id>` where phase-id matches `ORCHESTRATOR-PHASE-RUBRIC.md` (0, 1, 1b, 2, 2c, 3, 4, 5, 6-partial, 7-partial, hygiene).
+
+### §Δ.0 — MemoryRouter (PR #1, 2026-05-15)
+
+**New patterns:**
+- 5-tier memory hierarchy (hot / warm×2 / cool / cold / lesson) with declarative routing rules per importance
+- 12-class secret redactor (`flyn_memory_router/redact.py`) called on every outbound Graphiti + workspace write
+- Hot-tier `MEMORY.md` pin with 24h/72h decay + Owner-only permanent pin policy
+- Passthrough mode for migration (`FLYN_MEMORY_ROUTER_PASSTHROUGH=true` preserves legacy direct-Graphiti writes during dual-write verification)
+- `(source, dedup_key)`-namespaced dedup — replay blocks correctly without preventing same-key writes from different sources
+
+**New threats:**
+- **Redact-list-of-dicts bug** (T03) — when a payload field was a list of dicts, the recursive redactor skipped over the contained string fields. Fix landed before merge but worth knowing — recursive redactors should also descend into list elements, not just dict keys.
+- **Hot-TTL-uses-last-updated semantics** (T12) — naive implementations use `created_at` for decay; correct semantics is `last_updated_at` so a pinned-then-re-mentioned memory doesn't decay early.
+
+### §Δ.1 — Orchestrator foundation (PR #2, 2026-05-15)
+
+**New patterns:**
+- `claude -p --output-format stream-json --verbose` as the canonical worker invocation (stream-json without `--verbose` silently exits 0-byte; see `KNOWLEDGE/15`)
+- **Fresh-context reviewer** — every PR review spawns a NEW `claude -p` invocation with diff-only context, structured `ReviewFindings` JSON output. This is Flyn's stated differentiator vs community tools that reuse the builder's context window.
+- SQLite WAL-mode `state.db` with append-only `task_events` for the state-machine spine (`INBOUND → TRIAGING → ROUTED → DECOMPOSED → DISPATCHED → RUNNING → REVIEWED → DELIVERABLE_READY`)
+- Worktree-per-task isolation: each task allocates its own git worktree under `~/.flyn/orchestrator/workspaces/<task_id>/`
+- Cost tracking by parsing `usage` events directly from the stream-json output (no post-hoc API tally needed)
+
+**New threats:**
+- **0-byte capture without `--verbose`** — Phase 1 e2e overnight: missing `--verbose` caused workers to silently exit with 0-byte stream output. The orchestrator happily advanced to `deliverable_ready` with no actual deliverable. Hardened in Phase 1b.1.
+- **Worktree stale state** — leaving an orphan branch (e.g., `flyn/T-0001`) from a prior crashed run caused subsequent `worktree add` to fail immediately. Hardened in Phase 1b.3 via `git worktree prune` + force-delete-orphan-branch.
+
+### §Δ.1b — Orchestrator hardening (PR #3, 2026-05-15)
+
+**New patterns:**
+- **Silent-failure defenses** (4 of them): 0-byte capture guard, empty-diff defense, worktree idempotency, OAuth-as-API-key fallback
+- **Sanitizer allowlist** format — specific files can allow specific pattern classes with justification; eliminates false-positive review noise for legitimate strings like `--dangerously-skip-permissions` or `api.telegram.org`
+- **Mid-stream worker-kill on `BudgetExceeded`** — `CostTracker.add()` raises mid-`Popen` to abort the worker rather than letting it run to completion past the cap
+- **3-tier auth model** (`Owner` / `Teammate` / `Other`) — `sender_role` on `TaskRecord` gates everything downstream; rolled into `IDENTITY.md` + `AGENTS.md` workspace edits
+- "Spawned workers are tool processes, not peer agents" rule in `AGENTS.md` (post-compaction survival heading)
+
+**New threats:**
+- **`sk-ant-oat-*` token mistakenly passed as `ANTHROPIC_API_KEY`** — the `auth-profiles.json` slot stores BOTH OAuth refresh tokens AND API keys under the same key. The naive loader returned whatever it found. Fix: prefix check on `sk-ant-api*` only. See `KNOWLEDGE/21`.
+- **OAuth contention with interactive Claude Code sessions** — headless `claude -p` workers share `~/.claude/.credentials.json` with interactive sessions; concurrent token refresh races log the operator out. Mitigation: pass `ANTHROPIC_API_KEY` (API-key auth bypasses the refresh path) when available. See `KNOWLEDGE/17`.
+
+### §Δ.2 — Dev workflow (PR #4, 2026-05-15)
+
+**New patterns:**
+- `gh` CLI wrapper (`flyn_orchestrator/pr.py`) with `create_pr`, `merge_pr`, `pr_number_from_url` — keep `gh` calls behind a single module for easy mocking
+- Per-project Telegram forum topics (`#dev-<slug>`) via `createForumTopic` API; slug cache at `~/.flyn/orchestrator/telegram_topics.json`
+- File-domain `LockManager` (`flyn_orchestrator/locks.py`) — prevents two parallel builders editing overlapping globs in the same task
+- Walk-me-through PR generator (`flyn_orchestrator/walkthrough.py`) — fresh-context explainer for non-technical reviewers
+- Stale-PR nudge: daily heartbeat detects PRs waiting > 2 days, posts Telegram reminder
+
+**New threats:**
+- **Direct push to `main` is now a real risk** — Phase 2 wires up `gh`, so the orchestrator has push rights. Branch protection on `main` is criterion 2.8, enforced via PR-only flow. Verify branch protection on every new repo before connecting it.
+
+### §Δ.2c — Router refactor (PRs #8 + #9, 2026-05-16)
+
+**New patterns:**
+- **Function-based phase runners** (`research_phase.py` / `content_phase.py` / `ops_phase.py` / `dev_phase.py`) — each workflow's state-machine logic lives in module-level functions taking `(task, services)`
+- Frozen `PhaseServices` dataclass — 11-field bundle (store, memory, channels, reviewer_invoker, transition, safe_transition, notify, backend_registry, scratch_root, repo_path_for_workflow, workflows_dir) — replaces threading 8+ individual args through every signature
+- Pure structural refactor verification: all pre-existing tests pass byte-for-byte unchanged (190 → 192 with the new `PhaseServices` tests)
+
+**New threats:**
+- **Cross-module mock patching** — `@patch("oldmodule.fn")` decorators silently miss the call site that now lives in a new module after extraction. Fix: patch the new module's namespace too, OR import helpers via module-namespace (`from . import pr as _pr`) so test patches at the helper's home module still intercept. See `KNOWLEDGE/18`.
+- **Test→private-API coupling** — `test_critical_tier_owner_only` called `_handle_ops_approval` directly, forcing a 24-line shim through Phase 2c. Lint hint worth adding: forbid `router._<name>(` in test files. See `KNOWLEDGE/19`.
+
+### §Δ.3 — Research workflow (PR #5, 2026-05-15)
+
+**New patterns:**
+- **Parallel-researcher orchestration** via `ThreadPoolExecutor` capped at 4 — N sub-questions decomposed by PM, run concurrently, results merged by Synthesizer
+- **Fresh-context Critic** — separate `claude -p` invocation audits combined output for unsourced claims, contradictions, bias, gaps; critical/important findings transition to `CHANGES_REQUESTED` (not `DELIVERABLE_READY`)
+- Citation extraction + URL fetch + timestamp recording at write time (rather than post-hoc)
+- Raw-notes preservation alongside synthesized report at `~/Work/research/<topic>/<date>-<slug>.md` + `raw/` JSON dir
+
+**New threats:**
+- **Stub-routing-on-prompt-content trap** — a stub backend routed worker calls based on `"Critic" in prompt`, but the critic prompt itself contains both "Critic" and "Researcher" → wrong stub fired. Always route stubs on `spec.role` enum, not prompt-text substring.
+
+### §Δ.4 — Content workflow (PR #6, 2026-05-15)
+
+**New patterns:**
+- **Draft-only-by-default** — content workflow NEVER auto-publishes regardless of intent ambiguity. `wants_send=False` → `DELIVERABLE_READY` with `📝 DRAFT:` prefix posted to channel; explicit "send via X" → `FINAL_APPROVAL_PENDING` → teammate-or-owner approval → channel adapter sends
+- 8-phase sequential pipeline with conditional steps (Spec / Draft / Edit / [Fact-check?] / [Humanize?] / Format / Write / Decide-state)
+- Per-platform formatting (`telegram`/`email`/`slack`/`plain`/`tweet`/`linkedin`/`markdown`) with platform-specific warnings (e.g., "draft exceeds Telegram 4096-char limit")
+- Fact-checker scoped to **factual claims only** (numbers, names, dates) — opinions labeled as opinion, not flagged
+
+**New threats:**
+- Content-send-deferred for non-Telegram platforms — the MVP only ships Telegram outbound; sending to email/Slack/LinkedIn logs a `content_send_deferred` memory event and transitions to `COMPLETED` without actually sending. Operator must manually copy/paste. Will become a silent-failure risk once Phase 6 (multi-channel) ships and the operator EXPECTS email to send.
+
+### §Δ.5 — Ops workflow (PR #7, 2026-05-15)
+
+**New patterns:**
+- **Declarative risk-rules YAML** (`workflows/ops/risk-rules.yaml`) — adding a rule = editing YAML, never code. The classifier loads + ranks by tier.
+- **One-way escalation** via `max_tier(llm_tier, rule_floor)` — the LLM can upgrade a rule-classified tier but NEVER downgrade. The rule floor wins. Enforced at the orchestration layer (in `ops.classify_risk`), not just router-level — bypassing the router still can't downgrade.
+- SHA256 audit snapshots typed by target kind (file / http / cmd) — file is SHA256 of bytes; http hashes response body; cmd records exit_code + stdout hash
+- **Tier-keyed approval gates** — low: auto-execute; medium-high: owner-or-teammate approval; critical: owner-only AND written rationale (empty rationale → `ValueError`)
+- `audit_log` table with `UNIQUE(task_id, action, ts)` — append-only, replay-duplicate-blocking; rationale stored in `payload` JSON for forensic review
+
+**New threats:**
+- **Dry-run side effects** — `ops.dry_run_action` runs an LLM-described dry-run, but if the executor prompt is sloppy, the LLM can still touch the target. Mitigation lives in the `executor.md` prompt + `dry_run_supported` field on `OpsSpec`. Spec authors must mark `dry_run_supported=False` if the action is non-rehearsable.
+- **Validator post-condition trust** — `ops.validate_action` accepts the validator's "passed" verdict at face value. A compromised validator prompt could green-light a botched execute. Conformance to validator role-prompt is critical; deferred to a future audit phase.
+
+### §Δ.6-partial — Email channel (PR #13, 2026-05-17)
+
+**New patterns:**
+- **RFC 8601 `Authentication-Results` parser** + allowlist override (`email_auth.py`). Strict policy: BOTH spf and dkim must NOT explicitly fail; at least ONE must explicitly pass; no auth headers → reject (unless allowlisted).
+- Subject-line tagging convention (`[FLYN-TASK]`, `[FLYN-REPLY:<task_id>]`, `[FLYN-APPROVE:<task_id>]`, `[FLYN-REJECT:<task_id>]`) for disambiguating new tasks vs follow-ups vs approval responses
+- **Prompt-injection detection catalog** (`injection_detect.py`) — 8 regex patterns (instruction-override / role-reassignment / role-confusion-tag / system-prompt-reference / new-instructions-injection / prompt-boundary / zero-width-unicode / base64-blob / excessive-whitespace). Inbound emails with `(suspicious=True)` are rejected before they reach the PM-LLM.
+- Allowlist-first auth — Ryan/Beth/Eric always pass regardless of SPF/DKIM verdict; external senders must have at least one passing auth header
+
+**New threats:**
+- **Allowlist hardcoded vs sourced from CONTACTS.md** — MVP has the allowlist hardcoded in `email.py:DEFAULT_ALLOWLIST`. When CONTACTS.md becomes the source of truth (Phase 1b.6 wired it for auth tiers but not for email allowlist), keep the two in sync OR delete the hardcoded fallback.
+- **Injection patterns are a moving target** — the catalog is regex + pattern-matching. Real attackers will route around it (Unicode confusables, multi-step prompts, encoded payloads). Treat as defense-in-depth, not a wall. Consider adding an LLM-based scanner pass in Phase 6b.
+
+### §Δ.7-partial — Multi-PM adapters (PR #11, 2026-05-16)
+
+**New patterns:**
+- **PMAdapter Protocol contract** formalized at `adapters/base.py` — 4 methods (`create_task`, `update_state`, `link_artifact`, `comment_on_task`); each implementation conforms via `@runtime_checkable` isinstance
+- **Adapter never raises** best-effort guarantee — formalized in `test_pm_adapter_conformance.py` with `pm_adapter_with_failing_http` fixture that injects an exception-raising HTTP; every method must return cleanly. See `KNOWLEDGE/20`.
+- **Generic webhook PMAdapter** as a pattern for future PM-system integrations — configurable target URL + optional `X-Flyn-Secret` header; subclassing is for special semantics only
+- Shared stdlib `_http.py` urllib helper — no new HTTP-client dependency; injectable for tests; supports custom headers
+
+**New threats:**
+- **OL wiki has no native task-state field** — `update_state` is a no-op for `OLWikiPMAdapter`. The Decision row remains as the durable artifact, but state transitions are not mirrored. If/when OL wiki adds a `tasks` table, revisit.
+- **PMAdapter `configured` is advisory** — adapters can stub-return even when `configured=True` (e.g., HTTP layer failed). Callers should not trust `configured` alone; observe return values.
+
+### §Δ.hygiene — Cross-cutting docs (PR #12, 2026-05-16)
+
+**New patterns:**
+- 4 KNOWLEDGE entries added (18 cross-module-mock-patching, 19 test-public-API-not-internals, 20 adapters-never-raise, 21 OAuth-vs-API-key-token-discrimination)
+- Retroactive `CHANGELOG.md` in Keep-a-Changelog format, PR-numbered releases instead of semver
+- `RESUME-HERE.md` orchestrator section at top with live-service table + auth-contention warning + pending ship-gate list
+
+**New threats:**
+- **Rubric drift** — the rubric audit (PR #10) found 5 separate drift bugs (Phase 1 rows still ⬜ after merge, Phase 5 aggregate/detail mismatch, Phase 6 copy-paste error claiming 8/8 when 0/8, cross-cutting count off-by-one, overall denominator off after n/a exclusion). Score lines and row counts diverge silently. Mitigation: audit the rubric after every major phase merge.
+
+---
+
+*Per-phase deltas added 2026-05-17 by Claude Opus 4.7 — closes cross-cutting criterion X.2. Going forward, each phase's PR adds its own `§Δ.<phase-id>` subsection here at merge time.*
 - Aggregators: `kilo.ai`, `managemyclaw.com`, `simen.ai`, `florian-darroman.medium.com`
 
 ### GitHub
