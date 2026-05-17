@@ -80,6 +80,7 @@ import time
 import uuid as _uuid
 
 from .config import Config, READ_SOURCES, ReadSourceConfig
+from .health_tracker import TRACKER
 from .types import QueryResult, SourceError
 
 
@@ -160,13 +161,16 @@ async def query(q: str,
     errors: list[SourceError] = []
     for adapter, result in zip(adapters, results):
         if isinstance(result, asyncio.TimeoutError):
+            TRACKER.record(adapter.name, elapsed_ms=int(adapter.read_timeout * 1000), error=True)
             errors.append(SourceError(source=adapter.name, error_class="timeout",
                                        message=f"{adapter.read_timeout}s"))
             continue
         if isinstance(result, Exception):
+            TRACKER.record(adapter.name, elapsed_ms=0, error=True)
             errors.append(SourceError(source=adapter.name, error_class="exception",
                                        message=f"{type(result).__name__}: {result}"))
             continue
+        TRACKER.record(adapter.name, elapsed_ms=int((time.monotonic() - start) * 1000), error=False)
         per_source[adapter.name] = result
 
     merged = rrf_merge(per_source, top_k=top_k)

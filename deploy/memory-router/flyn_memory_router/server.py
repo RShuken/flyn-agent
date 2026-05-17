@@ -24,8 +24,9 @@ from .adapters.cool import CoolDailyRollupAdapter
 from .adapters.hot import HotMemoryMdAdapter
 from .adapters.lesson import LessonKnowledgeAdapter
 from .adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
-from .config import Config
+from .config import Config, READ_SOURCES
 from .dedup import DedupStore
+from .health_tracker import TRACKER
 from .pin import PinRequest, pin_permanent, unpin
 from .router import Router
 from .types import EventResult, Hit, InboundEvent, Tier
@@ -143,5 +144,19 @@ def build_app(http_client: Any | None = None) -> FastAPI:
             ent_findings = await lint_module.detect_drift(entity, per_source)
             findings.extend(ent_findings)
         return {"findings": [f.model_dump() for f in findings]}
+
+    @app.get("/api/memory/sources")
+    def sources_route() -> list[dict[str, Any]]:
+        out = []
+        for name, rsc in READ_SOURCES.items():
+            snap = TRACKER.snapshot(name)
+            out.append({
+                "name": name,
+                "kind": "read",
+                "default_included": rsc.default_included,
+                "timeout_s": rsc.timeout,
+                **snap,
+            })
+        return out
 
     return app
