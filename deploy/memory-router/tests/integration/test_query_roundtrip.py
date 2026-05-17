@@ -1,0 +1,57 @@
+"""Integration: real FastAPI app, fake adapters, full POST cycle."""
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from flyn_memory_router.server import build_app
+from flyn_memory_router.types import Hit
+
+
+class _FakeRead:
+    def __init__(self, name: str, hits: list[Hit] | None = None,
+                 default_included: bool = True, timeout: float = 1.0):
+        self.name = name
+        self.default_included = default_included
+        self.read_timeout = timeout
+        self._hits = hits or []
+
+    async def query(self, q: str, top_k: int = 10) -> list[Hit]:
+        return self._hits
+
+
+@pytest.fixture
+def app_with_fakes(monkeypatch, tmp_path):
+    from flyn_memory_router import query as query_module
+    fakes = [
+        _FakeRead("hot", [Hit(text="Beth Kukla, COO", source="hot/MEMORY.md", score=0.9, metadata={})]),
+        _FakeRead("warm", [Hit(text="Beth episode", source="warm/graphiti", score=0.8,
+                                metadata={"canonical_id": "ep-1"})]),
+        _FakeRead("reference", [Hit(text="Beth: see [[openlit]]", source="reference/wiki",
+                                     score=0.7, metadata={})]),
+    ]
+    monkeypatch.setattr(query_module, "_load_adapters", lambda include, exclude: fakes)
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path / "router"))
+    monkeypatch.setenv("FLYN_WORKSPACE", str(tmp_path / "ws"))
+    app = build_app()
+    return TestClient(app)
+
+
+def test_query_returns_merged_hits(app_with_fakes):
+    resp = app_with_fakes.post("/api/memory/query", json={"q": "Beth"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "query_id" in body
+    assert body["query_id"].startswith("q-")
+    assert len(body["hits"]) >= 1
+
+
+def test_query_top_k_clamps_results(app_with_fakes):
+    resp = app_with_fakes.post("/api/memory/query", json={"q": "Beth", "top_k": 1})
+    assert resp.status_code == 200
+    assert len(resp.json()["hits"]) == 1
+
+
+def test_query_validation_rejects_empty_q(app_with_fakes):
+    resp = app_with_fakes.post("/api/memory/query", json={"q": ""})
+    assert resp.status_code == 422

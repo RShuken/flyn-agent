@@ -14,8 +14,9 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from . import query as query_module
 from .adapters import AdapterRegistry
 from .adapters.cold import ColdCapturesIndexAdapter
 from .adapters.cool import CoolDailyRollupAdapter
@@ -37,6 +38,13 @@ class _PinBody(BaseModel):
 
 class _MaintBody(BaseModel):
     sender_role: Literal["owner", "teammate", "other"]
+
+
+class _QueryBody(BaseModel):
+    q: str = Field(..., min_length=1, max_length=2000)
+    include: list[str] | None = None
+    exclude: list[str] | None = None
+    top_k: int = Field(10, ge=1, le=100)
 
 
 def build_app(http_client: Any | None = None) -> FastAPI:
@@ -110,5 +118,12 @@ def build_app(http_client: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="owner only")
         removed = hot.decay()
         return {"ok": True, "removed": removed}
+
+    @app.post("/api/memory/query")
+    async def query_route(body: _QueryBody) -> dict[str, Any]:
+        result = await query_module.query(
+            body.q, include=body.include, exclude=body.exclude, top_k=body.top_k
+        )
+        return result.model_dump()
 
     return app

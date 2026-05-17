@@ -71,3 +71,104 @@ def normalize_text(s: str) -> str:
 
 def text_hash(s: str) -> str:
     return _text_hash(s)
+
+
+# --- async orchestrator added in Task 35 ---
+import asyncio
+import importlib
+import time
+import uuid as _uuid
+
+from .config import Config, READ_SOURCES, ReadSourceConfig
+from .types import QueryResult, SourceError
+
+
+def _resolve_class(cls_path: str):
+    module_path, _, cls_name = cls_path.partition(":")
+    module = importlib.import_module(module_path)
+    return getattr(module, cls_name)
+
+
+def _construct(rsc: ReadSourceConfig, cfg: Config):
+    cls = _resolve_class(rsc.cls_path)
+    name = rsc.name
+    if name == "hot":
+        return cls(memory_md=cfg.memory_md, pin_file=cfg.pin_file)
+    if name == "warm":
+        return cls(graphiti_url=cfg.graphiti_url, workspace_memory_dir=cfg.workspace_memory_dir)
+    if name == "cool":
+        return cls(memory_dir=cfg.workspace_memory_dir)
+    if name == "cold":
+        return cls(index_path=cfg.captures_index)
+    if name == "lesson":
+        return cls(knowledge_dir=cfg.knowledge_dir)
+    if name == "reference":
+        return cls(vault=cfg.reference_vault)
+    if name == "user":
+        return cls(auto_memory_dir=cfg.auto_memory_dir)
+    if name == "ol_wiki":
+        return cls(url=cfg.ol_wiki_url, pin=cfg.ol_wiki_pin)
+    if name == "ocw_mem":
+        return cls()
+    if name == "lossless":
+        return cls()
+    raise KeyError(f"No constructor wiring for adapter {name!r}")
+
+
+def _load_adapters(include: list[str] | None, exclude: list[str] | None):
+    """Construct active read adapters per request. Override in tests via monkeypatch."""
+    cfg = Config.from_env()
+    inc = set(include) if include else None
+    exc = set(exclude or [])
+
+    selected: list[ReadSourceConfig] = []
+    for name, rsc in READ_SOURCES.items():
+        if inc is not None:
+            if name not in inc:
+                continue
+        else:
+            if not rsc.default_included:
+                continue
+        if name in exc:
+            continue
+        selected.append(rsc)
+
+    return [_construct(rsc, cfg) for rsc in selected]
+
+
+async def query(q: str,
+                include: list[str] | None = None,
+                exclude: list[str] | None = None,
+                top_k: int = 10) -> QueryResult:
+    """Fan out across configured ReadAdapters, gather, dedup + RRF, return."""
+    qid = "q-" + _uuid.uuid4().hex[:12]
+    start = time.monotonic()
+    adapters = _load_adapters(include, exclude)
+    if not adapters:
+        return QueryResult(query_id=qid, hits=[], source_errors=[], elapsed_ms=0)
+
+    async def _one(adapter):
+        return await asyncio.wait_for(adapter.query(q, top_k=top_k),
+                                       timeout=adapter.read_timeout)
+
+    results = await asyncio.gather(
+        *[_one(a) for a in adapters],
+        return_exceptions=True,
+    )
+
+    per_source: dict[str, list[Hit]] = {}
+    errors: list[SourceError] = []
+    for adapter, result in zip(adapters, results):
+        if isinstance(result, asyncio.TimeoutError):
+            errors.append(SourceError(source=adapter.name, error_class="timeout",
+                                       message=f"{adapter.read_timeout}s"))
+            continue
+        if isinstance(result, Exception):
+            errors.append(SourceError(source=adapter.name, error_class="exception",
+                                       message=f"{type(result).__name__}: {result}"))
+            continue
+        per_source[adapter.name] = result
+
+    merged = rrf_merge(per_source, top_k=top_k)
+    elapsed = int((time.monotonic() - start) * 1000)
+    return QueryResult(query_id=qid, hits=merged, source_errors=errors, elapsed_ms=elapsed)
