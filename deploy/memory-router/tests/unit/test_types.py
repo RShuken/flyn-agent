@@ -1,4 +1,4 @@
-"""Type-validation tests for InboundEvent and Tier."""
+"""Type-validation tests for MemoryRouter types (InboundEvent, Tier, Hit, QueryResult, LintReport)."""
 from __future__ import annotations
 
 import pytest
@@ -81,3 +81,33 @@ def test_lint_report_shape():
         suggested_fix="update Graphiti episode 'beth-intro-2026-04'",
     )])
     assert len(lr.findings) == 1
+
+
+def test_source_error_rejects_empty_source():
+    from flyn_memory_router.types import SourceError
+    with pytest.raises(ValidationError):
+        SourceError(source="", error_class="timeout")
+
+
+def test_source_error_rejects_unknown_error_class():
+    from flyn_memory_router.types import SourceError
+    with pytest.raises(ValidationError):
+        SourceError(source="hot", error_class="bogus")
+
+
+def test_query_result_rejects_empty_query_id():
+    from flyn_memory_router.types import QueryResult
+    with pytest.raises(ValidationError):
+        QueryResult(query_id="", elapsed_ms=0)
+
+
+def test_lint_finding_rejects_empty_entity():
+    from flyn_memory_router.types import LintFinding
+    with pytest.raises(ValidationError):
+        LintFinding(entity="", sources={}, divergence="x")
+
+
+def test_lint_finding_rejects_empty_divergence():
+    from flyn_memory_router.types import LintFinding
+    with pytest.raises(ValidationError):
+        LintFinding(entity="Beth", sources={}, divergence="")

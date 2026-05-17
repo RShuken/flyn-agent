@@ -98,22 +98,22 @@ class Hit(BaseModel):
 
 
 class SourceError(BaseModel):
-    source: str
-    error_class: str       # "timeout" | "exception" | "malformed"
+    source: str = Field(..., min_length=1, max_length=64)
+    error_class: Literal["timeout", "exception", "malformed"]
     message: str = ""
 
 
 class QueryResult(BaseModel):
-    query_id: str
+    query_id: str = Field(..., min_length=1, max_length=128)
     hits: list[Hit] = Field(default_factory=list)
     source_errors: list[SourceError] = Field(default_factory=list)
     elapsed_ms: int
 
 
 class LintFinding(BaseModel):
-    entity: str
+    entity: str = Field(..., min_length=1, max_length=256)
     sources: dict[str, str]
-    divergence: str
+    divergence: str = Field(..., min_length=1, max_length=512)
     suggested_fix: str = ""
 
 
