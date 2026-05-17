@@ -532,16 +532,3 @@ These are intentionally not decided here. They become relevant only after Phase 
 - New reference vault: `~/AI/openclaw/reference/CLAUDE.md` (Karpathy LLM Wiki schema)
 - Reciprocal Rank Fusion: Cormack, Clarke, Buettcher (2009), "Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods"
 
----
-
-## Spec self-review notes (this section deleted after user approval)
-
-**Placeholder scan:** searched for TBD / TODO / XXX / FIXME / ??? / VERIFY — clean. Section 10 explicitly labels deferred decisions as deferred, not as placeholders.
-
-**Internal consistency:** Section 2 (architecture) matches Section 3 (components) matches Section 4 (data flow). Section 8 (Path A) matches the user's explicit selection. Section 9 (execution model) matches the user's choice of local autonomous stack.
-
-**Scope check:** This is one cohesive spec for one phase of one service. Folds into an existing plan rather than spawning new ones. Within scope for `writing-plans` next.
-
-**Ambiguity check:** Two intentional ambiguities, both flagged in Section 10: multi-owner and streaming. Everything else resolved.
-
-**Boundary check:** the spec specifies what to build, not how each adapter parses its source format. Adapter internals are TDD-discovered during implementation, not pre-specified — same discipline Phase 0 uses.
