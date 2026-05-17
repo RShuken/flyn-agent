@@ -39,3 +39,15 @@ def test_unknown_source_snapshot_is_empty():
     snap = ht.snapshot("never-seen")
     assert snap["last_elapsed_ms"] is None
     assert snap["error_rate_100q"] is None
+
+
+def test_all_snapshots_does_not_deadlock():
+    """Regression for the all_snapshots() deadlock when Lock wasn't reentrant."""
+    from flyn_memory_router.health_tracker import HealthTracker
+    ht = HealthTracker(window=10)
+    ht.record("hot", elapsed_ms=5, error=False)
+    ht.record("warm", elapsed_ms=10, error=True)
+    snaps = ht.all_snapshots()
+    assert set(snaps.keys()) == {"hot", "warm"}
+    assert snaps["hot"]["error_rate_100q"] == 0.0
+    assert snaps["warm"]["error_rate_100q"] == 1.0

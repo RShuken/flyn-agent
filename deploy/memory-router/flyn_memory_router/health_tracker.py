@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from threading import Lock
+from threading import RLock
 from typing import Any
 
 
@@ -11,7 +11,7 @@ class HealthTracker:
     def __init__(self, window: int = 100) -> None:
         self._window = window
         self._stats: dict[str, dict[str, Any]] = {}
-        self._lock = Lock()
+        self._lock = RLock()
 
     def record(self, source: str, elapsed_ms: int, error: bool) -> None:
         with self._lock:
