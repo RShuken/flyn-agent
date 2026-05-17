@@ -163,3 +163,27 @@ class TestReferenceRead:
     def test_returns_empty_without_index(self, tmp_path: Path):
         from flyn_memory_router.adapters.reference_read import ReferenceRead
         assert asyncio.run(ReferenceRead(vault=tmp_path).query("anything")) == []
+
+
+class TestUserRead:
+    @pytest.fixture
+    def memdir(self) -> Path:
+        return Path(__file__).parent.parent / "fixtures" / "auto_memory"
+
+    def test_grep_finds_match(self, memdir: Path):
+        from flyn_memory_router.adapters.user_read import UserRead
+        hits = asyncio.run(UserRead(auto_memory_dir=memdir).query("Beth"))
+        assert any("Beth" in h.text for h in hits)
+        assert all(h.source == "user/auto-memory" for h in hits)
+
+    def test_frontmatter_aware_metadata(self, memdir: Path):
+        from flyn_memory_router.adapters.user_read import UserRead
+        hits = asyncio.run(UserRead(auto_memory_dir=memdir).query("Beth"))
+        beth_hits = [h for h in hits if h.metadata.get("name") == "beth-role"]
+        assert beth_hits
+        assert beth_hits[0].metadata.get("memory_type") == "user"
+
+    def test_skips_memory_md_index_file(self, memdir: Path):
+        from flyn_memory_router.adapters.user_read import UserRead
+        hits = asyncio.run(UserRead(auto_memory_dir=memdir).query("Beth"))
+        assert all("MEMORY.md" not in h.metadata.get("file", "") for h in hits)
