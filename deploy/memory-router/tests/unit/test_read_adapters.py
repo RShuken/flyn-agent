@@ -107,3 +107,38 @@ class TestWarmRead:
             wr = WarmRead(graphiti_url="http://t", workspace_memory_dir=tmp_path, http=client)
             hits = await wr.query("Beth")
         assert any(h.source == "warm/workspace" for h in hits)
+
+
+class TestCoolRead:
+    def test_grep_daily_rollups(self, tmp_path: Path):
+        from flyn_memory_router.adapters.cool_read import CoolRead
+        (tmp_path / "2026-05-10.md").write_text("Beth pinged about Linear.")
+        (tmp_path / "2026-05-11.md").write_text("Eric posted Pearl Platform update.")
+        hits = asyncio.run(CoolRead(memory_dir=tmp_path).query("Beth"))
+        assert len(hits) == 1
+        assert hits[0].source == "cool/rollup"
+        assert "2026-05-10" in hits[0].metadata.get("date", "")
+
+
+class TestColdRead:
+    def test_line_grep_captures_index(self, tmp_path: Path):
+        from flyn_memory_router.adapters.cold_read import ColdRead
+        idx = tmp_path / "captures_index.jsonl"
+        idx.write_text(
+            json.dumps({"ts": "2026-04-01", "subject": "Beth onboard", "summary": "..."}) + "\n"
+            + json.dumps({"ts": "2026-04-02", "subject": "Eric onboard", "summary": "..."}) + "\n"
+        )
+        hits = asyncio.run(ColdRead(index_path=idx).query("Beth"))
+        assert len(hits) == 1
+        assert hits[0].source == "cold/captures"
+
+
+class TestLessonRead:
+    def test_grep_knowledge_dir(self, tmp_path: Path):
+        from flyn_memory_router.adapters.lesson_read import LessonRead
+        (tmp_path / "lesson-mcp-failure.md").write_text(
+            "## Lesson 2026-04-21\nMCP tool_use fails with codex; use REST."
+        )
+        hits = asyncio.run(LessonRead(knowledge_dir=tmp_path).query("MCP"))
+        assert len(hits) == 1
+        assert hits[0].source == "lesson/KNOWLEDGE"
