@@ -142,3 +142,24 @@ class TestLessonRead:
         hits = asyncio.run(LessonRead(knowledge_dir=tmp_path).query("MCP"))
         assert len(hits) == 1
         assert hits[0].source == "lesson/KNOWLEDGE"
+
+
+class TestReferenceRead:
+    @pytest.fixture
+    def vault(self) -> Path:
+        return Path(__file__).parent.parent / "fixtures" / "reference_vault"
+
+    def test_reads_index_first_then_walks(self, vault: Path):
+        from flyn_memory_router.adapters.reference_read import ReferenceRead
+        hits = asyncio.run(ReferenceRead(vault=vault).query("Beth"))
+        assert any(h.metadata.get("file", "").endswith("beth.md") for h in hits)
+        assert all(h.source == "reference/wiki" for h in hits)
+
+    def test_follows_wikilinks(self, vault: Path):
+        from flyn_memory_router.adapters.reference_read import ReferenceRead
+        hits = asyncio.run(ReferenceRead(vault=vault).query("openlit"))
+        assert any(h.metadata.get("file", "").endswith("openlit.md") for h in hits)
+
+    def test_returns_empty_without_index(self, tmp_path: Path):
+        from flyn_memory_router.adapters.reference_read import ReferenceRead
+        assert asyncio.run(ReferenceRead(vault=tmp_path).query("anything")) == []
