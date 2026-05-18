@@ -108,6 +108,7 @@ class EmailChannelAdapter:
         smtp_sender: Optional[Callable] = None,
         imap_fetcher: Optional[Callable] = None,
         contacts_path: Optional["Path"] = None,
+        memory_emitter: Optional[Any] = None,
     ) -> None:
         self._config = config if config is not None else _load_email_config()
         # Allowlist precedence: explicit `allowlist=` arg > CONTACTS.md loader
@@ -124,6 +125,7 @@ class EmailChannelAdapter:
             loaded = load_allowlist_from_contacts(contacts)
             self._allowlist = loaded if loaded is not None else DEFAULT_ALLOWLIST
         self._smtp_sender = smtp_sender
+        self._memory_emitter = memory_emitter
         self._imap_fetcher = imap_fetcher
 
     @property
@@ -198,7 +200,9 @@ class EmailChannelAdapter:
                     "auth_reason": auth_reason,
                 },
             )
-        except Exception:
+        except Exception as e:
+            from .._observability import emit_swallowed_error
+            emit_swallowed_error(self._memory_emitter, self.name, "ingest", e)
             return None  # best-effort — never raise
 
     def send(self, channel: str, body: str, attachments: Optional[list] = None) -> None:
@@ -233,7 +237,9 @@ class EmailChannelAdapter:
                     self._config["password"],  # type: ignore[index]
                 )
                 s.send_message(msg)
-        except Exception:
+        except Exception as e:
+            from .._observability import emit_swallowed_error
+            emit_swallowed_error(self._memory_emitter, self.name, "send", e)
             return  # best-effort
 
     def approve_button(self, task_id: str, action: str) -> None:

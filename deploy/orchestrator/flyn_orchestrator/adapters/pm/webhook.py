@@ -10,10 +10,14 @@ server to verify the origin.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ...types import TaskRecord, TaskState
+from .._observability import emit_swallowed_error
 from ._http import default_http
+
+if TYPE_CHECKING:
+    from ...memory import MemoryEmitter
 
 
 class WebhookPMAdapter:
@@ -24,16 +28,18 @@ class WebhookPMAdapter:
         target_url: str,
         secret: Optional[str] = None,
         http: Optional[Callable[..., Any]] = None,
+        memory_emitter: Optional["MemoryEmitter"] = None,
     ) -> None:
         self._target_url = target_url
         self._secret = secret
         self._http = http if http is not None else default_http
+        self._memory_emitter = memory_emitter
 
     @property
     def configured(self) -> bool:
         return bool(self._target_url)
 
-    def _post(self, event_type: str, payload: dict[str, Any]) -> None:
+    def _post(self, event_type: str, payload: dict[str, Any], *, task_id: Optional[str] = None) -> None:
         """Fire a JSON event; swallow all exceptions."""
         if not self.configured:
             return
@@ -49,8 +55,8 @@ class WebhookPMAdapter:
                 timeout=5,
                 headers=headers,
             )
-        except Exception:
-            pass  # best-effort; never raise from an adapter
+        except Exception as e:
+            emit_swallowed_error(self._memory_emitter, self.name, event_type, e, task_id=task_id)
 
     def create_task(self, t: TaskRecord) -> str:
         self._post(
@@ -62,6 +68,7 @@ class WebhookPMAdapter:
                 "sender_identifier": t.sender_identifier,
                 "sender_role": t.sender_role,
             },
+            task_id=t.task_id,
         )
         return f"webhook-{t.task_id}"
 
@@ -72,10 +79,11 @@ class WebhookPMAdapter:
                 "task_id": t.task_id,
                 "to_state": to_state.value if hasattr(to_state, "value") else str(to_state),
             },
+            task_id=t.task_id,
         )
 
     def link_artifact(self, t: TaskRecord, artifact: dict[str, Any]) -> None:
-        self._post("artifact_linked", {"task_id": t.task_id, "artifact": artifact})
+        self._post("artifact_linked", {"task_id": t.task_id, "artifact": artifact}, task_id=t.task_id)
 
     def comment_on_task(self, t: TaskRecord, body: str) -> None:
-        self._post("comment_added", {"task_id": t.task_id, "body": body[:5000]})
+        self._post("comment_added", {"task_id": t.task_id, "body": body[:5000]}, task_id=t.task_id)

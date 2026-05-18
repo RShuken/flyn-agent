@@ -10,10 +10,14 @@ status fields.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ...types import TaskRecord, TaskState
+from .._observability import emit_swallowed_error
 from ._http import default_http
+
+if TYPE_CHECKING:
+    from ...memory import MemoryEmitter
 
 
 class OLWikiPMAdapter:
@@ -23,9 +27,11 @@ class OLWikiPMAdapter:
         self,
         base_url: str = "http://127.0.0.1:8200",
         http: Optional[Callable[..., Any]] = None,
+        memory_emitter: Optional["MemoryEmitter"] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http if http is not None else default_http
+        self._memory_emitter = memory_emitter
 
     @property
     def configured(self) -> bool:
@@ -62,7 +68,8 @@ class OLWikiPMAdapter:
             if decision_id is None:
                 return f"olwiki-stub-{t.task_id}"
             return f"olwiki-decision-{decision_id}"
-        except Exception:
+        except Exception as e:
+            emit_swallowed_error(self._memory_emitter, self.name, "create_task", e, task_id=t.task_id)
             return f"olwiki-stub-{t.task_id}"
 
     def update_state(self, t: TaskRecord, to_state: TaskState) -> None:
