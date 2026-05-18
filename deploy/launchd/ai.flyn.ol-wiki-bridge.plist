@@ -6,11 +6,11 @@
     <string>ai.flyn.ol-wiki-bridge</string>
 
     <key>WorkingDirectory</key>
-    <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend</string>
+    <string>/Users/4c/AI/openclaw/flyn-agent/deploy/wiki-backend</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend/.venv/bin/uvicorn</string>
+        <string>/Users/4c/AI/openclaw/flyn-agent/deploy/wiki-backend/.venv/bin/uvicorn</string>
         <string>telegram_bridge:app</string>
         <string>--host</string>
         <string>127.0.0.1</string>
@@ -39,7 +39,7 @@
         <key>HOME</key>
         <string>/Users/4c</string>
         <key>PYTHONPATH</key>
-        <string>/Users/4c/AI/flyn-agent/deploy/wiki-backend</string>
+        <string>/Users/4c/AI/openclaw/flyn-agent/deploy/wiki-backend</string>
         <key>OL_BRIDGE_SECRET</key>
         <string>__SET_BY_INSTALLER__</string>
     </dict>

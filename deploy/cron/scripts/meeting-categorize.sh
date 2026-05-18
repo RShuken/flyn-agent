@@ -7,12 +7,12 @@ source "$(dirname "$0")/common.sh"
 
 log "start"
 
-PY=/Users/4c/AI/flyn-agent/deploy/wiki-backend/.venv/bin/python
+PY=/Users/4c/AI/openclaw/flyn-agent/deploy/wiki-backend/.venv/bin/python
 if [ ! -x "$PY" ]; then
   PY=python3
 fi
 
-cd /Users/4c/AI/flyn-agent/deploy/pm
+cd /Users/4c/AI/openclaw/flyn-agent/deploy/pm
 OUTPUT="$("$PY" meeting_categorizer.py 2>&1)" || {
   log "categorizer exited non-zero: $OUTPUT"
   alert_telegram "categorizer failed: ${OUTPUT:0:200}"

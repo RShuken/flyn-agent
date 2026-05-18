@@ -4,7 +4,7 @@
   <key>Label</key><string>ai.flyn.pulse.meeting-categorize</string>
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string>
-    <string>/Users/4c/AI/flyn-agent/deploy/cron/scripts/meeting-categorize.sh</string>
+    <string>/Users/4c/AI/openclaw/flyn-agent/deploy/cron/scripts/meeting-categorize.sh</string>
   </array>
   <key>EnvironmentVariables</key><dict>
     <key>HOME</key><string>/Users/4c</string>
