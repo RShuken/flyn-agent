@@ -16,7 +16,7 @@
 | Phase | Status | Score | Ship-gate |
 |---|---|---|---|
 | **0 — MemoryRouter** | ✅ SHIPPED + MERGED 2026-05-15 | 11/12 | PR #1 merged at `03f42a0` on main; one 🟡 on manual Telegram-DM step |
-| **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 13/14 (93%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Only Watchdog (1.8) still unbuilt; deferred until real stuck-worker incident |
+| **1 — Orchestrator foundation (MVP)** | ✅ SHIPPED + MERGED 2026-05-15 | 14/14 (100%) | PR #2 merged at `34382ca`; re-verified 2026-05-15 03:43 — `verify-marker.txt` round-trip, reviewer JSON clean, 7 state transitions. Watchdog (1.8) shipped 2026-05-18 on `feat/orchestrator-phase-1b-watchdog`. |
 | **1b — Orchestrator hardening** | ✅ SHIPPED 2026-05-15 | 9/9 | branch `feat/orchestrator-phase-1b`; 72 tests; all 4 silent-failure defenses + codex backend + workspace edits + sanitizer allowlist + cost guard + outbound Telegram |
 | **2 — Dev workflow (MVP)** | ✅ READY FOR SHIP-GATE | 10/10 | branch `feat/orchestrator-phase-2`; 122 tests; dev.yaml workflow + PR opening/merging + per-project Telegram topics + file-domain locks + walk-me-through + stale-PR nudge |
 | **3 — Research workflow** | ✅ SHIPPED 2026-05-15 | 7/7 | branch `feat/orchestrator-phase-3`; 141 tests; research.yaml + 4 prompts + citations.py + research.py (5 funcs) + router branch |
@@ -26,9 +26,9 @@
 | **7 — Multi-PM** | 🟡 PARTIAL | 3/6 (50%) | branch `feat/orchestrator-phase-7-partial`; 249 tests; OLWikiPMAdapter + WebhookPMAdapter + conformance suite. 7.3/7.4/7.6 block on Cora PM |
 | **Cross-cutting** | ✅ COMPLETE (autonomous scope) | 8/8 (100%) | PR #12 — RESUME-HERE refresh + 4 new KNOWLEDGE entries (18/19/20/21) + retroactive CHANGELOG.md; PR #14 — `audit/_baseline.md` §Δ per-phase deltas (Δ.0 through Δ.7-partial + Δ.hygiene) |
 
-**Overall completion: 81/87 criteria (93%)** — Phase 0-5 shipped + Phase 6 partial (4 criteria) + Phase 7 partial (3 criteria) + cross-cutting complete (8/8 autonomous scope, PRs #12 + #14). All autonomously-buildable criteria across the rubric are now ✅.
+**Overall completion: 82/87 criteria (94%)** — Phase 0-5 shipped + Phase 6 partial (4 criteria) + Phase 7 partial (3 criteria) + cross-cutting complete (8/8 autonomous scope, PRs #12 + #14) + Phase 1.8 Watchdog shipped 2026-05-18. All autonomously-buildable criteria across the rubric are now ✅.
 
-Remaining 6 ⬜ all require external setup (Ryan/DNS) or specific real-world events: Phase 6.1 (Google Chat OAuth), 6.2 (Workspace OAuth), 6.4 (DNS+SPF+DKIM for getcora.io), 6.8 (E2E round-trip), Phase 7.3/7.4 (Cora PM system existing), 7.6 (mirror E2E), Phase 1.8 (Watchdog — deferred until real stuck-worker incident). Plus 🟡 manual ship-gate playbooks awaiting Ryan-on-live execution.
+Remaining 5 ⬜ all require external setup (Ryan/DNS) or specific real-world events: Phase 6.1 (Google Chat OAuth), 6.2 (Workspace OAuth), 6.4 (DNS+SPF+DKIM for getcora.io), 6.8 (E2E round-trip), Phase 7.3/7.4 (Cora PM system existing), 7.6 (mirror E2E). Plus 🟡 manual ship-gate playbooks awaiting Ryan-on-live execution.
 
 Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external setup (DNS for `getcora.io`, Google Workspace OAuth, Cora PM system existing). 4 Phase 6 criteria (6.3, 6.5, 6.6, 6.7) are autonomously buildable today.
 
@@ -77,7 +77,7 @@ Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external 
 | 1.5 | `backends/codex-exec.py` switchable backend works for the same `WorkerHandle` interface | ✅ | `backends/codex_exec.py`; shipped via Phase 1b.5 | — |
 | 1.6 | `WorktreeManager` allocates worktree per task; locks claimed files in `agent_locks/` | ✅ | `worktree.py` + `locks.py`; idempotency hardened in Phase 1b.3 | — |
 | 1.7 | Fresh-context `Reviewer` invocation: separate `claude -p` per review with diff-only context, structured `ReviewFindings` JSON output | ✅ | `reviewer.py` invokes a separate `claude -p` per review; `test_reviewer.py` covers | — |
-| 1.8 | `Watchdog` tails capture stream, runs cheap-LLM triage (`gemma4:e4b`), classifies FINE/NEEDS_NUDGE/STUCK/DONE/ESCALATE | ⬜ | | Not yet built — sanitize from `johba37/claude-code-supervisor` (deferred indefinitely; no priority signal yet) |
+| 1.8 | `Watchdog` tails capture stream, runs cheap-LLM triage (`gemma4:e4b`), classifies FINE/NEEDS_NUDGE/STUCK/DONE/ESCALATE | ✅ | `flyn_orchestrator/watchdog.py` — `OllamaTriageBackend` (gemma4:e4b) + `TriageBackend` Protocol for stubs; `Watchdog` daemon thread, consecutive-STUCK threshold, ESCALATE bypasses threshold; dispatcher integration opt-in (`watchdog=` kwarg); 15 unit tests + 3 integration tests (343 total) | — |
 | 1.9 | `CostTracker` parses `usage` events from stream-json + Codex JSON; hard cap aborts worker | ✅ | `cost.py:CostTracker` + Phase 1b.8 wired mid-run abort into `claude_p.py` | — |
 | 1.10 | `MemoryEmitter` thin client POSTs every significant event to `:8400/api/memory/ingest` | ✅ | `memory.py:MemoryEmitter`; called throughout router on every state transition | — |
 | 1.11 | 3 Phase-1 adapters: `TelegramChannelAdapter` (wraps `@flyn_4c_bot`), `LinearPMAdapter`, `StdoutNotifyAdapter` — all pass adapter contract conformance suite | ✅ | `adapters/channels/telegram.py` + `adapters/pm/linear.py` + `adapters/notify/stdout.py`; outbound wiring shipped in Phase 1b.9 | — |
@@ -85,7 +85,7 @@ Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external 
 | 1.13 | E2E ship-gate: synthetic task → claude-p worker → captured stream-json → fresh reviewer → deliverable + Telegram report. Repeated with codex backend. | ✅ | Phase 1 verification 2026-05-15 03:29 — T-0001 round-trip with verify-marker.txt; codex round-trip in Phase 1b.5 | — |
 | 1.14 | RESUME-HERE.md doc-drift fix verified shipped (Eric: CEO, Ryan: CTO/tech lead) | ✅ | Shipped in T24 of Phase 0 | — |
 
-**Score: 13/14 ✅** — only 1.8 (Watchdog) remains; deferred indefinitely until a real stuck-worker incident provides a priority signal
+**Score: 14/14 ✅** — all criteria shipped; 1.8 Watchdog shipped 2026-05-18 on `feat/orchestrator-phase-1b-watchdog`
 
 ---
 

@@ -772,6 +772,20 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 **New threats:**
 - **Rubric drift** — the rubric audit (PR #10) found 5 separate drift bugs (Phase 1 rows still ⬜ after merge, Phase 5 aggregate/detail mismatch, Phase 6 copy-paste error claiming 8/8 when 0/8, cross-cutting count off-by-one, overall denominator off after n/a exclusion). Score lines and row counts diverge silently. Mitigation: audit the rubric after every major phase merge.
 
+### §Δ.1.8 — Watchdog (2026-05-18)
+
+**New patterns:**
+- **Polling-based stuck-worker triage** — a daemon thread wakes every N seconds (default 30s), reads the last K bytes of the capture file, and calls a TriageBackend. No re-architecture of the dispatcher stream loop required.
+- **Pluggable `TriageBackend` Protocol** — `OllamaTriageBackend` (gemma4:e4b, HTTP POST to local Ollama) is the default; tests use a `StubTriageBackend`. Swap by passing any object with a `classify(tail, intent, elapsed) → TriageResult` signature.
+- **Verdict → action callbacks** — `on_nudge`, `on_stuck`, `on_done`, `on_escalate` are optional callables injected at construction; default is no-op. Callers wire SIGTERM or Telegram notifications; the Watchdog itself has no subprocess reference.
+- **Consecutive-STUCK hysteresis** — `consecutive_stuck_threshold` (default 2) prevents false positives from a single slow poll. ESCALATE bypasses the threshold for catastrophic states.
+- **Opt-in dispatcher integration** — `WorkerDispatcher.dispatch()` accepts `watchdog: Optional[Watchdog] = None`; start/stop are bracketed around the backend call in a try/finally so the thread is always joined. Existing callers passing no watchdog see zero behaviour change.
+
+**New threats:**
+- **Triage backend errors silently default to FINE** — an unreachable Ollama, timeout, or malformed JSON response logs a warning but returns `FINE`. This means real stuckness can go undetected if the triage backend is degraded. Mitigation: monitor `confidence=0.0` verdicts in the audit log.
+- **Thread leakage if dispatcher crashes before stop()** — the daemon thread is started before `backend.run()` and stopped in the finally block. If the finally block itself throws (extremely unlikely), the daemon thread will outlive the task and continue polling a stale capture file. Since it's a daemon thread it won't prevent process exit, but it will consume CPU until the process ends.
+- **First-poll always empty** — the capture file is empty at t=0; the Watchdog skips classify on empty tails. This is correct but means a genuinely fast-STUCK worker gets a free pass for the first interval.
+
 ---
 
 *Per-phase deltas added 2026-05-17 by Claude Opus 4.7 — closes cross-cutting criterion X.2. Going forward, each phase's PR adds its own `§Δ.<phase-id>` subsection here at merge time.*
