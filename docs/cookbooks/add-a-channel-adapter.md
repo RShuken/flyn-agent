@@ -192,6 +192,25 @@ Create `tests/unit/test_<channel>_adapter.py`. Cover:
 
 If you wrote a separate auth/injection module, test that in its own file (`test_<channel>_auth.py`, `test_<channel>_injection.py`).
 
+### 4a. Add to the parametrized conformance suite
+
+`tests/unit/test_channel_adapter_conformance.py` runs ~9 contract tests against every ChannelAdapter (Protocol isinstance, non-empty name, ingest-with-valid-input, ingest-with-malformed-input, send-when-unconfigured, send-with-attachments, approve_button, transport-failure swallowing). Adding your adapter is one fixture entry:
+
+```python
+@pytest.fixture(
+    params=[
+        pytest.param(("telegram", lambda: TelegramChannelAdapter(bot_token=None), _TELEGRAM_VALID, _TELEGRAM_INVALID), id="telegram"),
+        pytest.param(("email",    lambda: EmailChannelAdapter(config=None),       _EMAIL_VALID,    _EMAIL_INVALID),    id="email"),
+        pytest.param(("<channel>", lambda: <Channel>ChannelAdapter(...),          _<CHANNEL>_VALID, _<CHANNEL>_INVALID), id="<channel>"),  # ← your row
+    ]
+)
+def channel_adapter(request): ...
+```
+
+Also define `_<CHANNEL>_VALID` (a representative valid raw_message dict that should produce an `InboundTaskRequest`) and `_<CHANNEL>_INVALID` (a malformed/empty dict that should return None) near the existing `_TELEGRAM_VALID` / `_EMAIL_VALID` constants at the top of the file.
+
+If your adapter has its own transport (HTTP API, SMTP, IMAP, websocket), add a `test_send_swallows_transport_failure_<channel>` test alongside the existing Telegram and Email cases. Use `monkeypatch` to make the transport raise, then assert `adapter.send(...)` returns None.
+
 ### 5. Register in the channel registry
 
 `flyn_orchestrator/adapters/__init__.py` exposes `ChannelRegistry`. The orchestrator's bootstrap code (in `server.py` or wherever the registry is constructed) needs to instantiate your adapter and register it:
