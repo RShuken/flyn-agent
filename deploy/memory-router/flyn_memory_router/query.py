@@ -135,6 +135,13 @@ def _construct(rsc: ReadSourceConfig, cfg: Config):
     raise KeyError(f"No constructor wiring for adapter {name!r}")
 
 
+async def _safe_aclose(aclose_fn) -> None:
+    try:
+        await aclose_fn()
+    except Exception:
+        pass
+
+
 def _load_adapters(include: list[str] | None, exclude: list[str] | None):
     """Construct active read adapters per request. Override in tests via monkeypatch."""
     cfg = Config.from_env()
@@ -217,5 +224,16 @@ async def query(q: str,
     for err in errors:
         _elog().write(query_id=qid, source=err.source,
                       exc=RuntimeError(f"{err.error_class}: {err.message}"))
+
+    # Close any adapter that exposes aclose() (HTTP-client owners). Failures are swallowed
+    # so cleanup never affects the response.
+    close_tasks = []
+    for adapter in adapters:
+        aclose = getattr(adapter, "aclose", None)
+        if aclose is not None and callable(aclose):
+            close_tasks.append(_safe_aclose(aclose))
+    if close_tasks:
+        await asyncio.gather(*close_tasks, return_exceptions=True)
+
     return QueryResult(query_id=qid, hits=merged, source_errors=errors, elapsed_ms=elapsed,
                        included_sources=[a.name for a in adapters])

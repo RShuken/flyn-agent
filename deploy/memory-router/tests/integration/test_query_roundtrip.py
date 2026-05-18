@@ -146,3 +146,38 @@ def test_lint_uses_autodiscovery_when_no_entities(monkeypatch, tmp_path):
     assert resp.status_code == 200
     # No drift expected (both sources agree); findings list is empty but route succeeded
     assert resp.json() == {"findings": []}
+
+
+def test_query_closes_adapters_with_aclose(monkeypatch, tmp_path):
+    """Adapters with aclose() should be closed at the end of query()."""
+    from flyn_memory_router import query as query_module
+    from flyn_memory_router.types import Hit
+
+    close_calls = []
+
+    class _ClosableAdapter:
+        name = "warm"
+        default_included = True
+        read_timeout = 1.0
+        async def query(self, q, top_k=10):
+            return [Hit(text="x", source="warm/test", score=0.5, metadata={})]
+        async def aclose(self):
+            close_calls.append("warm")
+
+    class _NonClosableAdapter:
+        name = "hot"
+        default_included = True
+        read_timeout = 1.0
+        async def query(self, q, top_k=10):
+            return [Hit(text="y", source="hot/test", score=0.5, metadata={})]
+        # no aclose method — should be skipped without error
+
+    fakes = [_ClosableAdapter(), _NonClosableAdapter()]
+    monkeypatch.setattr(query_module, "_load_adapters", lambda include, exclude: fakes)
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path / "router"))
+    monkeypatch.setenv("FLYN_WORKSPACE", str(tmp_path / "ws"))
+
+    import asyncio
+    result = asyncio.run(query_module.query("anything"))
+    assert "warm" in close_calls
+    assert len(result.hits) == 2
