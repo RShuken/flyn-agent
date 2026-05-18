@@ -799,6 +799,17 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Retry shares the same scratch dir** — each researcher's worker_dir is `scratch_dir / sub_q["id"]`, identical between initial run and retry. The retry overwrites the initial capture file. If a future audit needs to inspect both runs' captures, we'll need to namespace by run-attempt.
 - **Critic prompt receives the same outputs format on retry** — the second critique sees the new researcher outputs but doesn't know they're a "retry attempt". A more sophisticated retry might tell the critic explicitly to grade against the prior findings.
 
+### §Δ.channel-conformance — ChannelAdapter conformance suite (PR #21, 2026-05-18)
+
+**New patterns:**
+- **Parametrized conformance suite for ChannelAdapter Protocol** at `tests/unit/test_channel_adapter_conformance.py` — mirrors `test_pm_adapter_conformance.py` from §Δ.7-partial. Currently covers `TelegramChannelAdapter` + `EmailChannelAdapter`. New ChannelAdapter implementations get free coverage by adding one `pytest.param` row.
+- **18 contract guarantees enforced retroactively**: Protocol isinstance, `name` non-empty, `ingest` with valid input returns `InboundTaskRequest` or None, `ingest` with malformed/empty input returns None (never raises), `send` no-ops cleanly when unconfigured, `send(... attachments=[...])` accepts the optional kwarg, `approve_button` no-ops, AND transport-failure swallowing (urlopen raises for Telegram; injected smtp_sender raises for Email).
+- **Per-adapter "valid raw_message" payloads** in the fixture — each adapter has a different ingest shape (Telegram = Update dict with `message.chat.id`; Email = dict with `from`/`subject`/`body`/`headers`). The fixture pairs each adapter with a representative valid payload so contract tests run uniformly.
+
+**New threats:**
+- **Conformance suite doesn't run with the adapter configured for real network calls** — by design (no live Telegram Bot API hits in CI), but a regression where the adapter raises ONLY on real network responses (e.g., a particular API error code) won't be caught. Mitigation: real-network tests live in each adapter's own test file, tagged `@pytest.mark.live` and gated by env.
+- **Allowlist-bypass in Email's ingest path is hardcoded to the conformance fixture's email** — `ryanshuken@gmail.com` is in `DEFAULT_ALLOWLIST`. If that list is ever trimmed, the conformance test will start failing because `ingest_valid` returns None. Tradeoff vs constructing an SPF/DKIM-pass headers payload (more brittle to RFC changes).
+
 ### §Δ.4b — Content auto-rerun on editor/fact-check block (PR #20, 2026-05-18)
 
 **New patterns:**
