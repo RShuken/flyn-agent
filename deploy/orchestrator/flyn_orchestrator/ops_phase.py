@@ -280,11 +280,18 @@ def handle_approval(
 ) -> TaskRecord:
     """Handle AWAITING_OWNER_APPROVAL for ops: enforce auth + resume or reject.
 
-    Translates ApprovalDecision.gate to approver_role: "owner" or "critical"
-    gates indicate an owner-level approval; everything else is treated as
-    teammate.
+    Resolves approver_role from the configured owner_identifiers set: if the
+    approver's identifier appears in services.config.owner_identifiers they
+    receive role "owner"; otherwise "teammate".  The decision.gate field is
+    the REQUIRED approval level for the task, not the caller's role — using it
+    to infer role would allow any caller to self-escalate.
     """
-    approver_role = "owner" if decision.gate in ("owner", "critical") else "teammate"
+    owner_ids = (
+        services.config.owner_identifiers
+        if services.config is not None
+        else frozenset()
+    )
+    approver_role = "owner" if decision.approver in owner_ids else "teammate"
     decision_str = "approve" if decision.approved else "reject"
     rationale = decision.reason
 
