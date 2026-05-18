@@ -110,7 +110,10 @@ def test_research_workflow_full_roundtrip(research_router):
 
 
 def test_research_workflow_blocks_on_critic_failure(research_router):
-    """When the critic returns passed=False with a critical finding, task → changes_requested."""
+    """When the critic returns passed=False BOTH times (initial + retry), task → changes_requested.
+
+    Phase 3b added auto-retry; if the retry also fails, we still reach CHANGES_REQUESTED.
+    """
     router, store, tmp_path = research_router
     # Override the backend to make critic fail
     original_run = router._dispatcher._registry.get("claude-p").run
@@ -138,3 +141,67 @@ def test_research_workflow_blocks_on_critic_failure(research_router):
     task_id = router.accept(req)
     final = router.run_task(task_id)
     assert final.state == TaskState.CHANGES_REQUESTED
+    # Phase 3b: retry was attempted, retry_count=1 in payload
+    payload = final.raw_payload or {}
+    assert payload.get("research_retry_count") == 1
+    assert payload.get("research_blocking_findings"), \
+        f"Expected blocking findings in payload; got {payload}"
+
+
+def test_research_workflow_retry_succeeds(research_router):
+    """Critic fails first time, passes second time → DELIVERABLE_READY.
+
+    Phase 3b: the auto-rerun should append the critic's findings as extra
+    context to the researchers, and on second-pass the critic is satisfied.
+    """
+    router, store, tmp_path = research_router
+    original_run = router._dispatcher._registry.get("claude-p").run
+    critic_call_count = {"n": 0}
+    researcher_prompts_seen: list[str] = []
+
+    def _run_retry_succeeds(spec, prompt, *, cost_tracker=None):
+        if spec.role == WorkerRole.RESEARCHER:
+            researcher_prompts_seen.append(prompt)
+        if spec.role == WorkerRole.CRITIC:
+            critic_call_count["n"] += 1
+            # First critic call fails, second passes
+            if critic_call_count["n"] == 1:
+                body = {"passed": False, "summary": "unsourced (initial)",
+                        "findings": [{"severity": "critical", "category": "unsourced",
+                                      "note": "claim X has no source", "sub_question_id": "Q1"}]}
+            else:
+                body = {"passed": True, "summary": "looks clean after retry",
+                        "findings": []}
+            wt = Path(spec.worktree_path); wt.mkdir(parents=True, exist_ok=True)
+            cap = wt / f"{spec.worker_id}.jsonl"
+            cap.write_text(json.dumps({"type": "result", "result": json.dumps(body)}))
+            return WorkerResult(worker_id=spec.worker_id, exit_code=0, capture_path=cap,
+                                cost_usd=0.01, duration_ms=10, changed_files=[],
+                                summary=json.dumps(body))
+        return original_run(spec, prompt, cost_tracker=cost_tracker)
+
+    router._dispatcher._registry.get("claude-p").run = _run_retry_succeeds
+
+    req = InboundTaskRequest(
+        channel="manual", sender_identifier="ryan", sender_role="owner",
+        intent="research with retry",
+        external_message_id="msg-r-retry",
+    )
+    task_id = router.accept(req)
+    final = router.run_task(task_id)
+
+    assert final.state == TaskState.DELIVERABLE_READY, \
+        f"Expected DELIVERABLE_READY after retry succeeded, got {final.state!r}"
+    # Critic was called twice (first fail, second pass)
+    assert critic_call_count["n"] == 2, \
+        f"Expected 2 critic calls, got {critic_call_count['n']}"
+    # The second batch of researcher prompts contains the critic findings as context
+    # First batch: 2 prompts (Q1, Q2); retry batch: 2 more (Q1, Q2) = 4 total
+    assert len(researcher_prompts_seen) == 4, \
+        f"Expected 4 researcher prompts (2 + 2 retry), got {len(researcher_prompts_seen)}"
+    retry_prompts = researcher_prompts_seen[2:]
+    for p in retry_prompts:
+        assert "Critic findings from previous research run" in p, \
+            f"Retry prompt missing critic-findings context section"
+        assert "claim X has no source" in p, \
+            f"Retry prompt missing the specific blocking finding"
