@@ -22,6 +22,17 @@ class ReferenceRead:
     def __init__(self, vault: Path) -> None:
         self._vault = vault
         self._wiki = vault / "wiki"
+        self._index_cache: dict[str, Path] | None = None
+
+    def _resolve_target(self, name: str) -> Path | None:
+        """Resolve a wikilink target name to a path using the index cache.
+
+        Builds the cache lazily if not already populated.
+        Returns None if the target is not found.
+        """
+        if self._index_cache is None:
+            self._index_cache = {p.stem: p for p in self._wiki.rglob("*.md") if p.name not in ("log.md", "index.md")}
+        return self._index_cache.get(name.strip())
 
     async def query(self, q: str, top_k: int = 10) -> list[Hit]:
         if not self._wiki.exists():
@@ -29,6 +40,10 @@ class ReferenceRead:
         index_path = self._wiki / "index.md"
         if not index_path.exists():
             return []
+
+        # Build the index cache once per query
+        self._index_cache = {p.stem: p for p in self._wiki.rglob("*.md") if p.name not in ("log.md", "index.md")}
+
         ql = q.lower()
         candidates: list[Path] = []
 
@@ -49,9 +64,9 @@ class ReferenceRead:
                 continue
             for match in _WIKILINK_RE.finditer(content):
                 target = match.group(1).strip()
-                for h in self._wiki.rglob(f"{target}.md"):
-                    if h != cand:
-                        adjacent.add(h)
+                target_path = self._resolve_target(target)
+                if target_path and target_path != cand:
+                    adjacent.add(target_path)
 
         hits: list[Hit] = []
         for path in candidates:

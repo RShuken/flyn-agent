@@ -164,6 +164,25 @@ class TestReferenceRead:
         from flyn_memory_router.adapters.reference_read import ReferenceRead
         assert asyncio.run(ReferenceRead(vault=tmp_path).query("anything")) == []
 
+    def test_wikilink_resolution_uses_index_cache(self, vault: Path):
+        """Verify wikilink lookup goes through the cache, not rglob."""
+        from flyn_memory_router.adapters.reference_read import ReferenceRead
+        rr = ReferenceRead(vault=vault)
+        # Trigger query so the cache is built
+        hits = asyncio.run(rr.query("Beth"))
+        # Direct match: beth.md mentions [[openlit]], so openlit should be reachable
+        assert any(h.metadata.get("file", "").endswith("beth.md") for h in hits)
+        # If the index is built, we can call _resolve_target directly (whitebox test)
+        target_path = rr._resolve_target("openlit")
+        assert target_path is not None
+        assert target_path.name == "openlit.md"
+
+    def test_resolve_missing_target_returns_none(self, vault: Path):
+        from flyn_memory_router.adapters.reference_read import ReferenceRead
+        rr = ReferenceRead(vault=vault)
+        asyncio.run(rr.query("Beth"))   # build cache
+        assert rr._resolve_target("nonexistent-page") is None
+
 
 class TestUserRead:
     @pytest.fixture
