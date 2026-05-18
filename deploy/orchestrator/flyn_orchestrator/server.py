@@ -132,4 +132,13 @@ def build_app(
                          actor="user", reason="cancel via REST")
         return {"ok": True, "task_id": task_id, "state": "cancelled"}
 
+    @app.post("/api/maintenance/sweep-expired-approvals")
+    def sweep_expired_approvals() -> dict[str, Any]:
+        """Phase 5b sweep — daily-heartbeat-callable. Walks all AWAITING_OWNER_APPROVAL
+        tasks, transitions expired ones to REJECTED. Returns the list of
+        transitions for log/observability."""
+        from .ops_phase import sweep_expired_approvals as _sweep
+        transitioned = _sweep(store, memory_emitter=memory)
+        return {"ok": True, "transitioned": transitioned, "count": len(transitioned)}
+
     return app

@@ -861,9 +861,22 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Reject-expired-rejects still work** — only `approve` decisions are gated by expiry. A late `reject` is always honored (rejecting a stale approval is safe).
 
 **New threats:**
-- **No active expiration job** — expiry is checked at approval-arrival time only. A task sitting in `AWAITING_OWNER_APPROVAL` for 24h without any approval attempt remains in that state indefinitely. Mitigation could be a daily heartbeat sweep (Phase 5c?) that proactively transitions long-stalled approvals.
+- ~~**No active expiration job** — expiry is checked at approval-arrival time only. A task sitting in `AWAITING_OWNER_APPROVAL` for 24h without any approval attempt remains in that state indefinitely.~~ **RESOLVED** by PR #29 (§Δ.5b-approval-sweep): `sweep_expired_approvals` walks all AWAITING_OWNER_APPROVAL tasks; the daily heartbeat curls `POST /api/maintenance/sweep-expired-approvals` to transition expired ones proactively.
 - **Naive-datetime fallback assumes UTC** — if `approval_issued_at` is serialized without tz info (e.g., from a non-UTC client), the helper interprets it as UTC. Could under-expire by the local TZ offset. Mitigation: producer always uses `datetime.now(timezone.utc).isoformat()`.
 - **Window is hardcoded** — no operator-level config to relax windows during planned maintenance. If Ryan needs a 4h window during a deploy, the only option today is code-edit. Could expose via env (`FLYN_APPROVAL_WINDOW_HIGH_SECONDS=14400`) in a follow-up.
+
+### §Δ.5b-approval-sweep — Daily heartbeat expiration job (PR #29, 2026-05-18)
+
+**New patterns:**
+- **`POST /api/maintenance/sweep-expired-approvals` endpoint** — daily-heartbeat-callable. Calls `ops_phase.sweep_expired_approvals` and returns `{ok, transitioned: [{task_id, tier, elapsed_seconds, window_seconds}, ...], count}`. Mirrors the memory-router's `/api/memory/maintenance/decay` pattern (maintenance endpoints under `/api/maintenance/`).
+- **`StateStore.list_tasks_by_state(state)` query method** — new on the store. Used by the sweep to find AWAITING_OWNER_APPROVAL candidates; also useful for future health-check / monitoring endpoints.
+- **`sweep_expired_approvals(store, memory_emitter=None, *, now=None)` pure helper in `ops_phase.py`** — no PhaseServices coupling. Walks candidates, calls `_is_approval_expired` per task, transitions expired ones to REJECTED with `actor="sweep"`, appends `approval_expired` audit row (source: "daily-sweep"), emits `ops_approval_expired` memory event (best-effort: broken emitter doesn't break the sweep). Idempotent — subsequent calls find no candidates because transitioned tasks left the AWAITING state.
+- **Daily heartbeat integration** — `deploy/pulses/flyn_orchestrator_daily.sh` curls the endpoint after the stale-PR nudge. Logs the count; graceful when orchestrator is stopped (sweep endpoint unreachable → log + continue).
+
+**New threats:**
+- **Sweep depends on orchestrator being up** — if the orchestrator service is stopped (e.g., during OAuth contention as we've seen earlier), the daily heartbeat's curl fails and the sweep doesn't run. The script logs the failure but doesn't fall back to a direct DB connection (would require shelling into the venv from the heartbeat script). Mitigation: orchestrator restart wakes the sweep on the next daily run.
+- **Sweep is daily-cadence, not minute-cadence** — a critical-tier task could sit at AWAITING_OWNER_APPROVAL for almost 24h before the sweep notices, even though its 30-minute window expired hours ago. The approval-arrival check (Phase 5b) catches it the moment an approve arrives; the sweep is the safety net. For higher cadence, add a launchd plist running every 15 minutes (Phase 5c).
+- **Concurrent sweep + approve race** — if the daily sweep and a manual approval arrive at roughly the same moment, both could see the task in AWAITING_OWNER_APPROVAL and try to transition it. SQLite's `UNIQUE(task_id, from_state, to_state, actor)` constraint on `task_events` means whoever lands first wins (different actors prevent collision); the loser's transition silently no-ops via `safe_transition`. Acceptable but worth noting if we ever add a "best-of-N" approval semantic.
 
 ### §Δ.registry-auto-wire — PMRegistry/ChannelRegistry auto-wire memory_emitter (PR #27, 2026-05-18)
 

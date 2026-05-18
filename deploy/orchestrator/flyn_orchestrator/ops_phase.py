@@ -511,3 +511,95 @@ def _handle_approval_impl(
     )
 
     return services.store.get_task(task.task_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b sweep: proactive expiration of stale AWAITING_OWNER_APPROVAL tasks
+# ---------------------------------------------------------------------------
+
+def sweep_expired_approvals(
+    store,
+    memory_emitter=None,
+    *,
+    now: Optional[datetime] = None,
+) -> list[dict]:
+    """Walk all AWAITING_OWNER_APPROVAL tasks, transition expired ones to REJECTED.
+
+    Returns a list of `{task_id, tier, elapsed_seconds, window_seconds}` dicts
+    describing transitions that occurred. Designed to be called from the daily
+    heartbeat — runs without needing the full PhaseServices bundle so the
+    bootstrap surface stays minimal.
+
+    Per-tier windows are the same as for approval-arrival expiry (medium=2h,
+    high=1h, critical=30min). Tasks without `approval_issued_at` on payload
+    (legacy) are NOT expired by the sweep — only by an explicit approval.
+
+    Safe to call repeatedly; tasks already transitioned out of
+    AWAITING_OWNER_APPROVAL won't appear in the query result.
+    """
+    current = now or datetime.now(timezone.utc)
+    transitioned: list[dict] = []
+
+    candidates = store.list_tasks_by_state(TaskState.AWAITING_OWNER_APPROVAL)
+    for task in candidates:
+        payload = task.raw_payload or {}
+        tier = payload.get("risk_tier", "medium")
+        issued_at_iso = payload.get("approval_issued_at")
+        if not _is_approval_expired(issued_at_iso, tier, now=current):
+            continue
+
+        window = _approval_window_seconds(tier) or 0
+        target = payload.get("ops_spec", {}).get("target", "")
+        try:
+            issued_at_dt = datetime.fromisoformat(issued_at_iso) if issued_at_iso else None
+            if issued_at_dt is not None and issued_at_dt.tzinfo is None:
+                issued_at_dt = issued_at_dt.replace(tzinfo=timezone.utc)
+            elapsed = int((current - issued_at_dt).total_seconds()) if issued_at_dt else 0
+        except (ValueError, TypeError):
+            elapsed = 0
+
+        store.append_audit(
+            task_id=task.task_id,
+            actor="sweep",
+            action="approval_expired",
+            target=target,
+            before_hash=None,
+            after_hash=None,
+            payload={
+                "tier": tier,
+                "issued_at": issued_at_iso,
+                "window_seconds": window,
+                "elapsed_seconds": elapsed,
+                "source": "daily-sweep",
+            },
+        )
+        if memory_emitter is not None:
+            try:
+                memory_emitter.emit(
+                    source="orchestrator",
+                    event_type="ops_approval_expired",
+                    subject=task.task_id,
+                    body=(
+                        f"Sweep: approval for {task.task_id} elapsed {elapsed}s > "
+                        f"{window}s window (tier={tier}); rejecting"
+                    ),
+                    dedup_key=f"orch-{task.task_id}-sweep-expired",
+                    importance="warm",
+                )
+            except Exception:
+                pass  # observability never blocks the sweep
+        store.transition(
+            task_id=task.task_id,
+            from_state=TaskState.AWAITING_OWNER_APPROVAL,
+            to_state=TaskState.REJECTED,
+            actor="sweep",
+            reason=f"approval expired by sweep (tier={tier}, elapsed={elapsed}s, window={window}s)",
+        )
+        transitioned.append({
+            "task_id": task.task_id,
+            "tier": tier,
+            "elapsed_seconds": elapsed,
+            "window_seconds": window,
+        })
+
+    return transitioned

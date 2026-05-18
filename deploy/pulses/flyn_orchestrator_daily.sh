@@ -54,4 +54,17 @@ if [ -x "$PR_NUDGE" ]; then
     || echo "$LOG_PREFIX flyn-pr-nudge exited non-zero (non-fatal)"
 fi
 
+# Phase 5b sweep — expire AWAITING_OWNER_APPROVAL tasks beyond their tier window.
+# Endpoint returns {ok, transitioned: [...], count: N}. We log count; details
+# go to memory events + audit_log via the orchestrator's emit hooks.
+SWEEP_RESP=$(curl -sS --max-time 10 -X POST http://127.0.0.1:8300/api/maintenance/sweep-expired-approvals 2>/dev/null || echo "")
+if [ -n "$SWEEP_RESP" ]; then
+  COUNT=$(echo "$SWEEP_RESP" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("count", 0))
+except Exception: print(0)' 2>/dev/null || echo 0)
+  echo "$LOG_PREFIX approval sweep transitioned $COUNT task(s) to REJECTED"
+else
+  echo "$LOG_PREFIX approval sweep endpoint unreachable (orchestrator stopped?)"
+fi
+
 echo "$LOG_PREFIX done"
