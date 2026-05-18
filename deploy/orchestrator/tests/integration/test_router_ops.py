@@ -438,3 +438,128 @@ def test_critical_tier_owner_only(ops_router):
     assert "dry-run" in actions
     assert "post-snapshot" in actions
     assert "validate" in actions
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Phase 5b — approval expiry rejects stale approvals
+# ---------------------------------------------------------------------------
+
+
+def test_high_tier_approval_expires_after_window(ops_router, monkeypatch):
+    """Phase 5b: a high-tier approval arriving > 1h after issuance is rejected
+    with reason "approval expired", task transitions to REJECTED, and an
+    `approval_expired` audit row is appended.
+
+    Uses monkeypatch to backdate the issued_at timestamp so the test runs
+    quickly without actually waiting an hour.
+    """
+    import json as _json
+    from datetime import datetime, timedelta, timezone
+    router, store, tmp_path, target_file = ops_router
+
+    # Force the classifier to return high tier (same pattern as the
+    # test_high_tier_blocks_for_approval fixture above).
+    original_run = router._dispatcher._registry.get("claude-p").run
+
+    def _run_high_tier(spec, prompt, *, cost_tracker=None):
+        if spec.role == WorkerRole.CRITIC:
+            wt = Path(spec.worktree_path)
+            wt.mkdir(parents=True, exist_ok=True)
+            cap = wt / f"{spec.worker_id}.jsonl"
+            body = _make_risk_json("high")
+            cap.write_text(json.dumps({"type": "result", "result": body}))
+            return WorkerResult(
+                worker_id=spec.worker_id, exit_code=0, capture_path=cap,
+                cost_usd=0.01, duration_ms=10, changed_files=[], summary=body,
+            )
+        return original_run(spec, prompt, cost_tracker=cost_tracker)
+
+    router._dispatcher._registry.get("claude-p").run = _run_high_tier
+
+    # Submit; reaches AWAITING_OWNER_APPROVAL with issued_at = now.
+    req = InboundTaskRequest(
+        channel="manual",
+        sender_identifier="ryanshuken@gmail.com",
+        sender_role="owner",
+        intent="deploy to production environment",  # high-tier rule match
+        external_message_id="msg-ops-expire-1",
+        workflow_override="ops",
+    )
+    task_id = router.accept(req)
+    final = router.run_task(task_id)
+    assert final.state == TaskState.AWAITING_OWNER_APPROVAL
+
+    # Backdate approval_issued_at by 2 hours (well past the 1h window).
+    backdated = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    store.update_task_payload(task_id, {"approval_issued_at": backdated})
+
+    # Now submit an "approve" — should be rejected as expired.
+    result = router.handle_approval(
+        task_id,
+        ApprovalDecision(
+            task_id=task_id,
+            gate="owner",
+            approver="ryanshuken@gmail.com",
+            approved=True,
+            reason="ship it",
+        ),
+    )
+    assert result.state == TaskState.REJECTED, (
+        f"Expected REJECTED on expired approval, got {result.state!r}"
+    )
+
+    # Audit log: approval_expired row present; no `approved` or `post-snapshot`.
+    audit_rows = store.list_audit(task_id)
+    actions = [r["action"] for r in audit_rows]
+    assert "approval_expired" in actions, f"Missing approval_expired audit row; got {actions}"
+    assert "approved" not in actions, "Should NOT have approved-and-executed an expired request"
+    assert "post-snapshot" not in actions, "Execute phase should not have run"
+
+
+def test_fresh_approval_within_window_still_executes(ops_router):
+    """Sanity: a fresh approval (no backdating) still executes normally
+    even with Phase 5b expiry tracking active. Same as the existing
+    test_critical_tier_owner_only but as a high-tier regression check."""
+    router, store, tmp_path, target_file = ops_router
+    original_run = router._dispatcher._registry.get("claude-p").run
+
+    def _run_high_tier(spec, prompt, *, cost_tracker=None):
+        if spec.role == WorkerRole.CRITIC:
+            wt = Path(spec.worktree_path)
+            wt.mkdir(parents=True, exist_ok=True)
+            cap = wt / f"{spec.worker_id}.jsonl"
+            body = _make_risk_json("high")
+            cap.write_text(json.dumps({"type": "result", "result": body}))
+            return WorkerResult(
+                worker_id=spec.worker_id, exit_code=0, capture_path=cap,
+                cost_usd=0.01, duration_ms=10, changed_files=[], summary=body,
+            )
+        return original_run(spec, prompt, cost_tracker=cost_tracker)
+
+    router._dispatcher._registry.get("claude-p").run = _run_high_tier
+
+    req = InboundTaskRequest(
+        channel="manual",
+        sender_identifier="ryanshuken@gmail.com",
+        sender_role="owner",
+        intent="deploy to production environment",
+        external_message_id="msg-ops-fresh-1",
+        workflow_override="ops",
+    )
+    task_id = router.accept(req)
+    router.run_task(task_id)
+
+    # Fresh approval (no backdating) — should execute
+    result = router.handle_approval(
+        task_id,
+        ApprovalDecision(
+            task_id=task_id, gate="owner",
+            approver="ryanshuken@gmail.com",
+            approved=True, reason="fresh approval",
+        ),
+    )
+    assert result.state == TaskState.DELIVERABLE_READY
+    audit_rows = store.list_audit(task_id)
+    actions = [r["action"] for r in audit_rows]
+    assert "approval_expired" not in actions, "Fresh approval should not expire"
+    assert "approved" in actions, "Fresh approval should produce approved row"
