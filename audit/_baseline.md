@@ -851,6 +851,20 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Dedup key collapses repeated identical errors per task** — `adapter-{name}-{method}-{task_id}` means 100 OSError instances from the same `webhook.task_created` call against the same task produce 1 event, not 100. This is a feature (not noise) but means error frequency is NOT observable from memory events alone; logs/cost-ledger are the right place for per-call counts.
 - **Memory layer load** — every swallowed error round-trips through `MemoryEmitter.emit()` → HTTP POST to `:8400`. If the memory router is the same failure point that's affecting an adapter (e.g., network partition), the emit itself may fail. Mitigation: helper swallows emit errors. Observability becomes silent in that case, but the adapter still completes its primary work.
 
+### §Δ.5b-approval-expiry — Time-windowed ops approvals (PR #28, 2026-05-18)
+
+**New patterns:**
+- **Per-tier approval expiry windows** — medium=2h, high=1h, critical=30min. Defined as a module-private dict (`_APPROVAL_WINDOW_SECONDS`) in `ops_phase.py`. Low-tier tasks auto-execute and have no window (returns None).
+- **`approval_issued_at` ISO-8601 timestamp on payload** — recorded at every transition to `AWAITING_OWNER_APPROVAL` (both the initial risk-tier gate AND the validator-fail block). Stored alongside `approval_context` so a future UI can render "expires in N minutes".
+- **`_is_approval_expired(issued_at, tier, *, now=None)` pure helper** — testable in isolation. Returns False for legacy tasks without `approval_issued_at` (graceful), for low/unknown tiers (no window), and for unparseable ISO strings. Strict `>` boundary semantics (exactly-at-window-second is NOT expired).
+- **Expired approval path** — at `handle_approval` time, if `decision == "approve"` AND elapsed > window: emit `ops_approval_expired` memory event, append `approval_expired` audit row, transition to REJECTED with reason `"approval expired (tier=X, window=Ys)"`. Operator must re-submit a new task; re-classification happens fresh.
+- **Reject-expired-rejects still work** — only `approve` decisions are gated by expiry. A late `reject` is always honored (rejecting a stale approval is safe).
+
+**New threats:**
+- **No active expiration job** — expiry is checked at approval-arrival time only. A task sitting in `AWAITING_OWNER_APPROVAL` for 24h without any approval attempt remains in that state indefinitely. Mitigation could be a daily heartbeat sweep (Phase 5c?) that proactively transitions long-stalled approvals.
+- **Naive-datetime fallback assumes UTC** — if `approval_issued_at` is serialized without tz info (e.g., from a non-UTC client), the helper interprets it as UTC. Could under-expire by the local TZ offset. Mitigation: producer always uses `datetime.now(timezone.utc).isoformat()`.
+- **Window is hardcoded** — no operator-level config to relax windows during planned maintenance. If Ryan needs a 4h window during a deploy, the only option today is code-edit. Could expose via env (`FLYN_APPROVAL_WINDOW_HIGH_SECONDS=14400`) in a follow-up.
+
 ### §Δ.registry-auto-wire — PMRegistry/ChannelRegistry auto-wire memory_emitter (PR #27, 2026-05-18)
 
 **New patterns:**

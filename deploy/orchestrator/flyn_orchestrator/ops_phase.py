@@ -14,6 +14,7 @@ in ops.classify_risk via max_tier().
 from __future__ import annotations
 
 import json as _json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -30,6 +31,51 @@ if TYPE_CHECKING:
 # auth check inside _handle_approval_impl.
 _OWNER_ROLES = frozenset({"owner"})
 _TEAMMATE_OR_OWNER_ROLES = frozenset({"owner", "teammate"})
+
+
+# Phase 5b: per-tier approval expiry windows. After this much wall-clock
+# elapses between AWAITING_OWNER_APPROVAL transition and the approval
+# decision arriving, the approval is rejected and the task transitions to
+# REJECTED with reason "approval expired". Operator must re-submit a new
+# task for re-classification; this prevents stale approvals from auto-
+# executing in a changed operational context.
+_APPROVAL_WINDOW_SECONDS = {
+    "medium":   2 * 3600,    # 2 hours
+    "high":     1 * 3600,    # 1 hour
+    "critical": 30 * 60,     # 30 minutes
+}
+
+
+def _approval_window_seconds(tier: str) -> Optional[int]:
+    """Return the expiry window for a tier, or None if not tracked.
+    Unknown tiers (e.g., "low" which auto-executes) return None."""
+    return _APPROVAL_WINDOW_SECONDS.get(tier)
+
+
+def _is_approval_expired(
+    issued_at_iso: Optional[str],
+    tier: str,
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
+    """Return True if the time elapsed since *issued_at_iso* exceeds the
+    expiry window for *tier*. Returns False (no expiry) when:
+      - issued_at_iso is None (legacy task, no timestamp recorded)
+      - tier is not in _APPROVAL_WINDOW_SECONDS (e.g., "low")
+      - issued_at_iso fails to parse
+    """
+    window = _approval_window_seconds(tier)
+    if window is None or not issued_at_iso:
+        return False
+    try:
+        issued_at = datetime.fromisoformat(issued_at_iso)
+    except (ValueError, TypeError):
+        return False
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    elapsed = (current - issued_at).total_seconds()
+    return elapsed > window
 
 
 def run(task: TaskRecord, services: "PhaseServices") -> None:
@@ -163,8 +209,16 @@ def run(task: TaskRecord, services: "PhaseServices") -> None:
         if tier == "critical":
             approval_context["requires_rationale"] = True
 
+        # Phase 5b: record issuance timestamp for expiry tracking.
+        issued_at = datetime.now(timezone.utc).isoformat()
+        window = _approval_window_seconds(tier)
+        approval_context["issued_at"] = issued_at
+        if window is not None:
+            approval_context["expires_after_seconds"] = window
+
         services.store.update_task_payload(task.task_id, {
             "approval_context": approval_context,
+            "approval_issued_at": issued_at,
         })
         services.safe_transition(
             task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
@@ -248,7 +302,11 @@ def execute_and_finalize(
         )
     else:
         # Validator concerns — block for owner review even if low tier auto-executed
-        services.store.update_task_payload(task.task_id, {
+        # Phase 5b: validator-fail block uses the same expiry policy as
+        # the pre-execute approval block. Record issuance timestamp.
+        validator_block_issued_at = datetime.now(timezone.utc).isoformat()
+        validator_block_window = _approval_window_seconds(tier)
+        validator_block_payload: dict = {
             "validator_concerns": val_result.summary,
             "validator_postcondition_results": [
                 {
@@ -259,7 +317,11 @@ def execute_and_finalize(
                 }
                 for p in val_result.postcondition_results
             ],
-        })
+            "approval_issued_at": validator_block_issued_at,
+        }
+        if validator_block_window is not None:
+            validator_block_payload["approval_expires_after_seconds"] = validator_block_window
+        services.store.update_task_payload(task.task_id, validator_block_payload)
         services.safe_transition(
             task.task_id, TaskState.RUNNING, TaskState.AWAITING_OWNER_APPROVAL,
             actor="validator",
@@ -346,6 +408,42 @@ def _handle_approval_impl(
                 f"ops task {task.task_id!r} (tier={tier}) requires owner or teammate approval; "
                 f"approver {approver!r} has role {approver_role!r}"
             )
+
+    # Phase 5b: expiry check (after auth, before reject/approve branches).
+    # Expired APPROVE attempts reject the task with reason "approval expired" —
+    # operator must re-submit so the risk classifier runs fresh against current
+    # operational context. Expired REJECT attempts still go through normally
+    # (rejecting a stale approval is always safe).
+    if decision == "approve":
+        issued_at_iso = payload.get("approval_issued_at")
+        if _is_approval_expired(issued_at_iso, tier):
+            window = _approval_window_seconds(tier) or 0
+            services.store.append_audit(
+                task_id=task.task_id,
+                actor=approver,
+                action="approval_expired",
+                target=payload.get("ops_spec", {}).get("target", ""),
+                before_hash=None,
+                after_hash=None,
+                payload={
+                    "tier": tier,
+                    "issued_at": issued_at_iso,
+                    "window_seconds": window,
+                    "rationale": rationale or "",
+                },
+            )
+            services.memory.emit(
+                source="orchestrator", event_type="ops_approval_expired",
+                subject=task.task_id,
+                body=f"Approval for {task.task_id} arrived after {window}s window (tier={tier}); rejecting",
+                dedup_key=f"orch-{task.task_id}-approval-expired", importance="warm",
+            )
+            services.safe_transition(
+                task.task_id, TaskState.AWAITING_OWNER_APPROVAL, TaskState.REJECTED,
+                actor=approver,
+                reason=f"approval expired (tier={tier}, window={window}s)",
+            )
+            return services.store.get_task(task.task_id)
 
     if decision == "reject":
         services.store.append_audit(
