@@ -140,6 +140,32 @@ def _cmd_sources(args, client_factory) -> int:
     return 0
 
 
+def _cmd_ingest(args, client_factory) -> int:
+    try:
+        payload = json.loads(args.event_json)
+    except json.JSONDecodeError as e:
+        print(f"flyn-mem: invalid JSON event: {e}", file=sys.stderr)
+        return 1
+    try:
+        with client_factory() as c:
+            r = c.post("/api/memory/ingest", json=payload)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.ConnectError as e:
+        return _connect_error(e)
+    except httpx.HTTPStatusError as e:
+        print(f"flyn-mem: server error: {e.response.status_code} {e.response.text}", file=sys.stderr)
+        return 1
+    if args.json_out:
+        print(json.dumps(data, indent=2))
+        return 0
+    print(f"accepted={data.get('accepted')} deduped={data.get('deduped')} importance={data.get('importance')}")
+    print(f"tiers_written={', '.join(data.get('tiers_written', []))}")
+    for n in data.get("notes", []):
+        print(f"  note: {n}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="flyn-mem")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -151,6 +177,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--json", dest="json_out", action="store_true")
     sub.add_parser("health", help="overall + per-source health")
     sub.add_parser("sources", help="full sources registry (JSON)")
+    ig = sub.add_parser("ingest", help="POST a memory event to /api/memory/ingest")
+    ig.add_argument("event_json", help="JSON-encoded event payload (InboundEvent shape)")
+    ig.add_argument("--json", dest="json_out", action="store_true")
     lg = sub.add_parser("logs", help="tail query log")
     lg.add_argument("--query-id", dest="query_id", default=None)
     lg.add_argument("--grep", default=None)
@@ -168,6 +197,7 @@ def main(argv: list[str] | None = None,
         "query": _cmd_query,
         "health": _cmd_health,
         "sources": _cmd_sources,
+        "ingest": _cmd_ingest,
         "logs": _cmd_logs,
     }
     fn = dispatch.get(args.cmd)

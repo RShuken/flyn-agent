@@ -91,3 +91,52 @@ def test_query_retries_once_on_5xx(capsys, monkeypatch):
     rc = main(["query", "x"], client_factory=_client_factory(handler))
     assert rc == 0
     assert call_count["n"] == 2
+
+
+def test_ingest_subcommand_posts_event(capsys):
+    from flyn_memory_router.cli import main
+
+    def handler(request):
+        assert request.url.path == "/api/memory/ingest"
+        body = json.loads(request.content)
+        assert body["source"] == "manual"
+        assert body["event_type"] == "test"
+        return httpx.Response(200, json={
+            "accepted": True, "deduped": False, "importance": "warm",
+            "tiers_written": ["warm"], "notes": [],
+        })
+
+    event_json = json.dumps({
+        "source": "manual", "event_type": "test", "subject": "x",
+        "body": "hello", "dedup_key": "k1",
+    })
+    rc = main(["ingest", event_json], client_factory=_client_factory(handler))
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "accepted" in captured.out
+    assert "warm" in captured.out
+
+
+def test_ingest_subcommand_rejects_invalid_json(capsys):
+    from flyn_memory_router.cli import main
+
+    def handler(request):
+        return httpx.Response(200, json={})
+
+    rc = main(["ingest", "not-valid-json"], client_factory=_client_factory(handler))
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "JSON" in err or "json" in err
+
+
+def test_ingest_subcommand_propagates_server_400(capsys):
+    from flyn_memory_router.cli import main
+
+    def handler(request):
+        return httpx.Response(400, json={"detail": "missing dedup_key"})
+
+    event_json = json.dumps({"source": "x", "event_type": "y", "subject": "z", "body": "w", "dedup_key": "k"})
+    rc = main(["ingest", event_json], client_factory=_client_factory(handler))
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "400" in err
