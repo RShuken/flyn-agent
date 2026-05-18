@@ -116,3 +116,46 @@ def test_cancel(client):
     task_id = r1.json()["task_id"]
     r2 = client.post(f"/api/tasks/{task_id}/cancel")
     assert r2.status_code == 200
+
+
+def _seed_task_then_force_handler(client, monkeypatch, ext_id, exc):
+    """Seed a task, then replace TaskRouter.handle_approval to raise the given exception."""
+    r1 = client.post("/api/tasks/inbound", json={
+        "channel": "manual", "sender_identifier": "ryan", "sender_role": "owner",
+        "intent": "noop", "external_message_id": ext_id,
+    })
+    task_id = r1.json()["task_id"]
+    # The /approve route calls task_router.handle_approval; patch THAT, not ops_phase
+    from flyn_orchestrator.router import TaskRouter
+    def fake_handle(self, task_id, decision):
+        raise exc
+    monkeypatch.setattr(TaskRouter, "handle_approval", fake_handle)
+    return task_id
+
+
+def test_approve_returns_403_on_permission_error(client, monkeypatch):
+    """TaskRouter.handle_approval raising PermissionError → HTTP 403."""
+    task_id = _seed_task_then_force_handler(
+        client, monkeypatch, "msg-perm",
+        PermissionError("not authorized — critical tier requires Owner"),
+    )
+    r = client.post(f"/api/tasks/{task_id}/approve", json={
+        "task_id": task_id, "gate": "critical", "approver": "beth@cora",
+        "approved": True, "reason": "trying as teammate",
+    })
+    assert r.status_code == 403
+    assert "Owner" in r.json()["detail"]
+
+
+def test_approve_returns_400_on_value_error(client, monkeypatch):
+    """TaskRouter.handle_approval raising ValueError → HTTP 400."""
+    task_id = _seed_task_then_force_handler(
+        client, monkeypatch, "msg-rationale",
+        ValueError("critical-tier approval requires rationale"),
+    )
+    r = client.post(f"/api/tasks/{task_id}/approve", json={
+        "task_id": task_id, "gate": "critical", "approver": "ryanshuken@gmail.com",
+        "approved": True, "reason": "",
+    })
+    assert r.status_code == 400
+    assert "rationale" in r.json()["detail"]
