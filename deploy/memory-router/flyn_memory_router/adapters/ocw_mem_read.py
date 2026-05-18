@@ -14,6 +14,26 @@ from ..types import Hit
 
 
 class OCWMemRead:
+    """Read OpenClaw's built-in memory search via `openclaw memory search --json`.
+
+    Expected stdout shape (pinned for forward-compat detection — see
+    tests/smoke/test_ocw_mem_live.py):
+
+        {
+          "results": [
+            {
+              "text":  str,   # snippet text (required, non-empty)
+              "score": float, # similarity 0..1 (optional, defaults to 0.5)
+              "file":  str,   # absolute path of source file (optional)
+              "line":  int    # 1-based line number (optional)
+            },
+            ...
+          ]
+        }
+
+    If `openclaw memory search` ever changes this contract, the live smoke
+    test will fail loudly and this adapter will need updating.
+    """
     name = "ocw_mem"
     read_timeout = 3.0
     default_included = False
