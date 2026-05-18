@@ -21,6 +21,7 @@ from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
 from .reviewer import review as _default_review
 from .state import StateStore
+from .watchdog import OllamaTriageBackend, TriageBackend, TriageResult, Watchdog
 from .workflows import Workflow, match_intent
 from .types import (
     ApprovalDecision,
@@ -49,6 +50,8 @@ class TaskRouter:
         reviewer_invoker: Optional[Callable[..., ReviewFindings]] = None,
         channel_registry: Optional[ChannelRegistry] = None,
         workflows: Optional[list[Workflow]] = None,
+        watchdog_factory: Optional[Callable[[Path, str, str], Watchdog]] = "default",
+        triage_backend: Optional[TriageBackend] = None,
     ) -> None:
         self._store = store
         self._dispatcher = dispatcher
@@ -59,6 +62,19 @@ class TaskRouter:
         self._reviewer_invoker = reviewer_invoker or _default_review
         self._channels = channel_registry
         self._workflows = workflows or []
+        # Triage backend: pluggable; production uses Ollama gemma4:e4b. Passed
+        # to the default watchdog factory; if a custom factory is provided this
+        # is ignored.
+        self._triage_backend: TriageBackend = triage_backend or OllamaTriageBackend()
+        # Watchdog wiring: pass `watchdog_factory=None` to disable. The
+        # sentinel string "default" preserves backward compatibility (existing
+        # callers omit the kwarg and get default-on behavior).
+        if watchdog_factory == "default":
+            self._watchdog_factory: Optional[Callable[[Path, str, str], Watchdog]] = (
+                self._build_default_watchdog
+            )
+        else:
+            self._watchdog_factory = watchdog_factory  # type: ignore[assignment]
 
         from .phase_services import PhaseServices
         self._services = PhaseServices(
@@ -223,8 +239,15 @@ class TaskRouter:
                 requirements="Implement the task; commit changes; output a one-line summary.",
             )
 
-            # 8. Dispatch to backend
-            result = self._dispatcher.dispatch(spec, prompt)
+            # 8. Dispatch to backend (with watchdog if wired)
+            wd: Optional[Watchdog] = None
+            if self._watchdog_factory is not None:
+                try:
+                    capture_path = Path(spec.worktree_path) / f"{spec.worker_id}.jsonl"
+                    wd = self._watchdog_factory(capture_path, task_id, t.intent)
+                except Exception:
+                    wd = None  # best-effort; never break dispatch on watchdog construction
+            result = self._dispatcher.dispatch(spec, prompt, watchdog=wd)
             cost_tracker.add(result.cost_usd)
 
             # 9. RUNNING → REVIEWED
@@ -393,6 +416,61 @@ class TaskRouter:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _build_default_watchdog(
+        self,
+        capture_path: Path,
+        task_id: str,
+        task_intent: str,
+    ) -> Watchdog:
+        """Default watchdog factory: emits memory events on every non-FINE verdict;
+        escalations also fire a Telegram notify if a channel is wired."""
+
+        def _emit(event_type: str, body: str, importance: str = "warm") -> None:
+            try:
+                self._memory.emit(
+                    source="orchestrator",
+                    event_type=event_type,
+                    subject=task_id,
+                    body=body[:500],
+                    dedup_key=f"orch-{task_id}-{event_type}",
+                    importance=importance,
+                )
+            except Exception:
+                pass
+
+        def on_nudge(r: TriageResult) -> None:
+            _emit("worker_needs_nudge", f"watchdog: {r.reason}", importance="cool")
+
+        def on_stuck(r: TriageResult) -> None:
+            _emit("worker_stuck", f"watchdog: {r.reason}")
+
+        def on_done(r: TriageResult) -> None:
+            _emit("worker_done_signal", f"watchdog: {r.reason}", importance="cool")
+
+        def on_escalate(r: TriageResult) -> None:
+            _emit("worker_escalate", f"watchdog ESCALATE: {r.reason}")
+            if self._channels is None:
+                return
+            task = self._store.get_task(task_id)
+            if task is None:
+                return
+            # Best-effort owner ping via originating channel
+            try:
+                self._notify_originating_channel(task, None)
+            except Exception:
+                pass
+
+        return Watchdog(
+            capture_path=capture_path,
+            task_id=task_id,
+            task_intent=task_intent,
+            backend=self._triage_backend,
+            on_nudge=on_nudge,
+            on_stuck=on_stuck,
+            on_done=on_done,
+            on_escalate=on_escalate,
+        )
 
     def _notify_originating_channel(
         self,
