@@ -6,13 +6,14 @@ Frozen dataclass: phase runners read but never mutate. Eliminates threading
 coupling phase modules to the TaskRouter class itself.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .adapters import ChannelRegistry
     from .backends import BackendRegistry
+    from .config import Config
     from .memory import MemoryEmitter
     from .state import StateStore
     from .types import ReviewFindings, TaskState
@@ -31,3 +32,4 @@ class PhaseServices:
     scratch_root: Path
     repo_path_for_workflow: Callable[[str], Path]
     workflows_dir: Path
+    config: Optional["Config"] = field(default=None)

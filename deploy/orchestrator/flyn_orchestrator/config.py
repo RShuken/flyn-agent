@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -13,6 +13,7 @@ class Config:
     default_backend: str
     concurrent_tasks_max: int
     concurrent_workers_max: int
+    owner_identifiers: frozenset = field(default_factory=frozenset)
 
     @property
     def db_path(self) -> Path: return self.home / "data" / "state.db"
@@ -29,6 +30,8 @@ class Config:
                                     str(Path.home() / ".flyn" / "orchestrator")))
         workspace = Path(os.environ.get("FLYN_WORKSPACE",
                                          str(Path.home() / ".openclaw" / "workspace")))
+        raw = os.environ.get("FLYN_OWNER_IDENTIFIERS", "")
+        owner_ids = frozenset(s.strip() for s in raw.split(",") if s.strip())
         return cls(
             home=home,
             workspace=workspace,
@@ -37,4 +40,5 @@ class Config:
             default_backend=os.environ.get("FLYN_DEFAULT_BACKEND", "claude-p"),
             concurrent_tasks_max=int(os.environ.get("FLYN_CONCURRENT_TASKS_MAX", "4")),
             concurrent_workers_max=int(os.environ.get("FLYN_CONCURRENT_WORKERS_MAX", "6")),
+            owner_identifiers=owner_ids,
         )

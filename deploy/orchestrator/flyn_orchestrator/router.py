@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .adapters import ChannelRegistry
+from .config import Config
 from .cost import BudgetExceeded, CostTracker
 from .dispatcher import WorkerDispatcher, WorkerProducedNothing
 from .memory import MemoryEmitter
@@ -52,6 +53,7 @@ class TaskRouter:
         workflows: Optional[list[Workflow]] = None,
         watchdog_factory: Optional[Callable[[Path, str, str], Watchdog]] = "default",
         triage_backend: Optional[TriageBackend] = None,
+        config: Optional[Config] = None,
     ) -> None:
         self._store = store
         self._dispatcher = dispatcher
@@ -62,6 +64,7 @@ class TaskRouter:
         self._reviewer_invoker = reviewer_invoker or _default_review
         self._channels = channel_registry
         self._workflows = workflows or []
+        self._config = config
         # Triage backend: pluggable; production uses Ollama gemma4:e4b. Passed
         # to the default watchdog factory; if a custom factory is provided this
         # is ignored.
@@ -89,6 +92,7 @@ class TaskRouter:
             scratch_root=Path(self._wt_mgr._dir),
             repo_path_for_workflow=self._repo_path_for_workflow,
             workflows_dir=Path(__file__).parent / "workflows",
+            config=self._config,
         )
 
     # ------------------------------------------------------------------

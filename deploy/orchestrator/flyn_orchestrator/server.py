@@ -79,6 +79,7 @@ def build_app(
         reviewer_invoker=reviewer_invoker,
         channel_registry=channels,  # NEW: wires outbound notify
         workflows=workflows,
+        config=cfg,
     )
 
     app = FastAPI(title="flyn-orchestrator", version="0.1.0")

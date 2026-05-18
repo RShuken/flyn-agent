@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from flyn_orchestrator.backends.base import WorkerResult
+from flyn_orchestrator.config import Config
 from flyn_orchestrator.dispatcher import WorkerDispatcher
 from flyn_orchestrator.memory import MemoryEmitter
 from flyn_orchestrator.router import TaskRouter
@@ -181,6 +182,17 @@ def ops_router(tmp_path):
     store = StateStore(db_path=tmp_path / "state.db")
     wt_mgr = WorktreeManager(workspaces_dir=tmp_path / "ws")
 
+    cfg = Config(
+        home=tmp_path,
+        workspace=tmp_path,
+        port=8300,
+        router_url="http://localhost:8400",
+        default_backend="claude-p",
+        concurrent_tasks_max=4,
+        concurrent_workers_max=6,
+        owner_identifiers=frozenset({"ryanshuken@gmail.com"}),
+    )
+
     router = TaskRouter(
         store=store,
         dispatcher=dispatcher,
@@ -192,6 +204,7 @@ def ops_router(tmp_path):
         / "prompts"
         / "builder.md",
         workflows=[ops_wf],
+        config=cfg,
     )
     return router, store, tmp_path, target_file
 
@@ -368,23 +381,23 @@ def test_critical_tier_owner_only(ops_router):
         f"Expected AWAITING_OWNER_APPROVAL after critical intent, got {final.state!r}"
     )
 
-    # 3. Teammate (Eric) approval must be rejected. gate="teammate" routes to
-    # approver_role="teammate" inside ops_phase.handle_approval; critical tier
-    # rejects.
+    # 3. Teammate (Eric) approval must be rejected. eric@example.com is NOT in
+    # owner_identifiers, so approver_role resolves to "teammate"; critical tier
+    # rejects regardless of what gate value the caller sends.
     with pytest.raises(PermissionError, match="owner"):
         router.handle_approval(
             task_id,
             ApprovalDecision(
                 task_id=task_id,
-                gate="teammate",
+                gate="critical",  # sending "critical" here must NOT grant owner role
                 approver="eric@example.com",
                 approved=True,
                 reason="Eric thinks it is fine",
             ),
         )
 
-    # 4. Owner (Ryan) without rationale must also be rejected. gate="critical"
-    # routes to approver_role="owner"; empty reason triggers ValueError.
+    # 4. Owner (Ryan) without rationale must also be rejected. ryanshuken@gmail.com
+    # IS in owner_identifiers so role=owner, but empty reason triggers ValueError.
     with pytest.raises(ValueError, match="rationale"):
         router.handle_approval(
             task_id,
