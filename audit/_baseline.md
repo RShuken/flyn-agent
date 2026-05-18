@@ -786,6 +786,19 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Thread leakage if dispatcher crashes before stop()** — the daemon thread is started before `backend.run()` and stopped in the finally block. If the finally block itself throws (extremely unlikely), the daemon thread will outlive the task and continue polling a stale capture file. Since it's a daemon thread it won't prevent process exit, but it will consume CPU until the process ends.
 - **First-poll always empty** — the capture file is empty at t=0; the Watchdog skips classify on empty tails. This is correct but means a genuinely fast-STUCK worker gets a free pass for the first interval.
 
+### §Δ.3b — Research auto-rerun on critic block (PR #19, 2026-05-18)
+
+**New patterns:**
+- **Auto-retry-with-context loop on workflow critique failure** — research workflow's critic-block path is no longer a dead-end. On first failure, the orchestrator builds a "Critic findings from previous research run" markdown block from blocking findings and re-runs researchers with that text appended to their prompts. If the retry critique passes, the workflow proceeds to synthesize as if it had passed the first time.
+- **`extra_context` kwarg on `run_researchers`** — opt-in parameter that gets appended (separated by `---`) to each researcher's prompt. Doesn't change semantics when None.
+- **Distinct `actor` field for retry transitions** — `task_events`' UNIQUE(task_id, from_state, to_state, actor) constraint is satisfied by using `actor="research-retry"` for retry-cycle transitions. Each retry cycle re-emits DISPATCHED→RUNNING→REVIEWED with the retry actor.
+- **Retry-count + blocking-findings on task payload** — when retry-then-still-fails, the payload records `research_retry_count=1` and `research_blocking_findings=[{severity, category, note}, ...]` so a human reviewer at CHANGES_REQUESTED can see exactly what's blocking.
+
+**New threats:**
+- **Capped at 1 retry by hardcoded path** — there's no config knob; if you want a 2-retry workflow you have to edit `research_phase.py`. Tradeoff: avoids runaway critique loops on adversarial intents.
+- **Retry shares the same scratch dir** — each researcher's worker_dir is `scratch_dir / sub_q["id"]`, identical between initial run and retry. The retry overwrites the initial capture file. If a future audit needs to inspect both runs' captures, we'll need to namespace by run-attempt.
+- **Critic prompt receives the same outputs format on retry** — the second critique sees the new researcher outputs but doesn't know they're a "retry attempt". A more sophisticated retry might tell the critic explicitly to grade against the prior findings.
+
 ---
 
 *Per-phase deltas added 2026-05-17 by Claude Opus 4.7 — closes cross-cutting criterion X.2. Going forward, each phase's PR adds its own `§Δ.<phase-id>` subsection here at merge time.*

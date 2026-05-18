@@ -164,6 +164,7 @@ def run_researchers(
     backend: WorkerBackend,
     task_id: str = "research",
     max_parallel: int = 4,
+    extra_context: Optional[str] = None,
 ) -> list[ResearcherOutput]:
     """Spawn one researcher per sub-question (up to max_parallel). Concurrent.
 
@@ -174,6 +175,10 @@ def run_researchers(
     writes to its own scratch directory and capture path — no shared mutable
     state. ClaudePBackend.run() opens its own Popen per call; the stub backend
     in tests writes to per-worker files. Both are thread-safe.
+
+    If *extra_context* is provided, it's appended to each researcher's prompt
+    (separated by a horizontal rule). This is how Phase 3b's auto-rerun feeds
+    the critic's blocking findings back to the researchers on retry.
     """
     sub_qs = plan.sub_questions[:max_parallel]
     if not sub_qs:
@@ -188,6 +193,8 @@ def run_researchers(
             .replace("{SUB_QUESTION}", sub_q["question"])
             .replace("{RESEARCH_TITLE}", plan.title)
         )
+        if extra_context:
+            prompt = prompt + "\n\n---\n\n" + extra_context
         spec = WorkerSpec(
             task_id=task_id,
             worker_id=f"{task_id}-researcher-{sub_q['id']}",
