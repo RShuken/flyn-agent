@@ -838,6 +838,19 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Empty-section semantics could surprise** — a CONTACTS.md section with the heading but no bullets means "reject everyone not passing SPF/DKIM", not "fall back to default". This is intentional (explicit override) but the runbook should call it out more loudly. Mitigation: the section docstring inside CONTACTS.md says "one email per bullet" which implies bullets are required.
 - **No live-reload on file change** — a future Phase 6b could add an inotify/kqueue watcher that re-loads on CONTACTS.md modification. Currently it's restart-only.
 
+### §Δ.adapter-observability — MemoryEmitter wired into adapters (PR #24, 2026-05-18)
+
+**New patterns:**
+- **Shared `emit_swallowed_error` helper** at `flyn_orchestrator/adapters/_observability.py` — single place for the `adapter_swallowed_error` event shape. All 4 I/O-performing adapters call into it from their `except` blocks. Helper is itself try/except-wrapped: a broken `MemoryEmitter` cannot break the adapter's never-raise contract.
+- **`memory_emitter` is an optional adapter constructor kwarg** — opt-in. When None (default), adapters behave exactly as before (silent swallow). When wired, every swallowed HTTP/IO/auth error fires an observable memory event. This preserves backward compatibility for every existing test + caller.
+- **Standardized event shape** — `event_type="adapter_swallowed_error"`, `subject=task_id` (or adapter name fallback), `body="<adapter>.<method> swallowed <ExcClass>: <truncated_msg>"`, dedup keys scoped by `(adapter, method, task_id)`. Future cross-cutting incident analysis can query by `adapter_swallowed_error` and aggregate.
+- **Per-method event_type granularity for webhook adapter** — `WebhookPMAdapter._post` accepts an `event_type` for the webhook payload itself; the swallowed-error body names that event (`webhook.task_created swallowed OSError: ...`) so an observer knows which lifecycle event failed.
+
+**New threats:**
+- **Wiring is per-adapter-instance, not central** — each adapter takes `memory_emitter` separately. A future PMRegistry / ChannelRegistry could inject this automatically; currently the bootstrap code (server.py, TaskRouter init) must thread it through. If a new adapter is registered without `memory_emitter`, its swallowed errors stay invisible.
+- **Dedup key collapses repeated identical errors per task** — `adapter-{name}-{method}-{task_id}` means 100 OSError instances from the same `webhook.task_created` call against the same task produce 1 event, not 100. This is a feature (not noise) but means error frequency is NOT observable from memory events alone; logs/cost-ledger are the right place for per-call counts.
+- **Memory layer load** — every swallowed error round-trips through `MemoryEmitter.emit()` → HTTP POST to `:8400`. If the memory router is the same failure point that's affecting an adapter (e.g., network partition), the emit itself may fail. Mitigation: helper swallows emit errors. Observability becomes silent in that case, but the adapter still completes its primary work.
+
 ---
 
 *Per-phase deltas added 2026-05-17 by Claude Opus 4.7 — closes cross-cutting criterion X.2. Going forward, each phase's PR adds its own `§Δ.<phase-id>` subsection here at merge time.*

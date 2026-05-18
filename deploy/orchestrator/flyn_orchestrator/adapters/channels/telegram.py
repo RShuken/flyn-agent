@@ -57,8 +57,13 @@ def _classify_sender(chat_id: int) -> SenderRole:
 class TelegramChannelAdapter:
     name = "telegram"
 
-    def __init__(self, bot_token: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        bot_token: Optional[str] = None,
+        memory_emitter: Optional[Any] = None,
+    ) -> None:
         self._token = bot_token or _load_bot_token()
+        self._memory_emitter = memory_emitter
 
     def ingest(self, raw_message: dict[str, Any]) -> Optional[InboundTaskRequest]:
         # Accept either a full Update dict {"update_id":..., "message":{...}}
@@ -116,8 +121,9 @@ class TelegramChannelAdapter:
             result = json.loads(body)
             if result.get("ok"):
                 return result["result"]["message_thread_id"]
-        except Exception:
-            pass
+        except Exception as e:
+            from .._observability import emit_swallowed_error
+            emit_swallowed_error(self._memory_emitter, self.name, "create_forum_topic", e)
         return None
 
     def send(self, channel: str, body: str, attachments: Optional[list] = None,
@@ -146,7 +152,9 @@ class TelegramChannelAdapter:
                 data=data, method="POST",
             )
             urllib.request.urlopen(req, timeout=10)
-        except Exception:
+        except Exception as e:
+            from .._observability import emit_swallowed_error
+            emit_swallowed_error(self._memory_emitter, self.name, "send", e)
             return  # best-effort
 
     def approve_button(self, task_id: str, action: str) -> None:

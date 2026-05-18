@@ -50,19 +50,27 @@ The `Exception` catch is broad-on-purpose. Adapters are at the IO boundary; we d
 
 ## What about telemetry
 
-Adapters SHOULD emit a memory event when they swallow an error:
+Adapters that perform real I/O accept an optional `memory_emitter` kwarg. When wired, swallowed errors fire `adapter_swallowed_error` memory events via the shared `emit_swallowed_error` helper at `adapters/_observability.py`. The helper is itself wrapped in try/except — a broken memory emitter cannot violate the adapter's never-raise contract.
 
 ```python
-except Exception as e:
-    self._memory.emit(
-        source="orchestrator", event_type="adapter_swallowed_error",
-        subject=t.task_id, body=f"{self.name} create_task failed: {e}",
-        dedup_key=f"orch-{t.task_id}-{self.name}-swallow", importance="cool",
-    )
-    return f"{self.name}-stub-{t.task_id}"
+# In the adapter:
+def create_task(self, t: TaskRecord) -> str:
+    try:
+        resp = self._http(method="POST", url=..., json=..., timeout=5)
+        return f"{self.name}-{resp.json()['id']}"
+    except Exception as e:
+        emit_swallowed_error(self._memory_emitter, self.name, "create_task", e, task_id=t.task_id)
+        return f"{self.name}-stub-{t.task_id}"
 ```
 
-The Phase 7 MVP doesn't wire `MemoryEmitter` into adapters yet (they don't take `services`). When that gap closes, swallowed errors become observable without breaking the contract.
+The helper emits with this shape:
+- `event_type="adapter_swallowed_error"`
+- `subject=task_id` (or adapter name when no task_id available)
+- `body=f"{adapter_name}.{method} swallowed {ExceptionClass}: {truncated_message}"`
+- `dedup_key=f"adapter-{adapter_name}-{method}-{task_id_or_'no-task'}"`
+- `importance="cool"`
+
+Wired in 4 adapters via PR #24 (§Δ.adapter-observability): OLWikiPMAdapter, WebhookPMAdapter, TelegramChannelAdapter, EmailChannelAdapter. Pass `memory_emitter=MemoryEmitter(...)` at adapter construction. When omitted (default), the adapter behaves exactly as before — swallowed errors are silent.
 
 ## Conformance enforcement
 
