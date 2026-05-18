@@ -107,9 +107,22 @@ class EmailChannelAdapter:
         allowlist: Optional[frozenset[str]] = None,
         smtp_sender: Optional[Callable] = None,
         imap_fetcher: Optional[Callable] = None,
+        contacts_path: Optional["Path"] = None,
     ) -> None:
         self._config = config if config is not None else _load_email_config()
-        self._allowlist: frozenset[str] = allowlist if allowlist is not None else DEFAULT_ALLOWLIST
+        # Allowlist precedence: explicit `allowlist=` arg > CONTACTS.md loader
+        # > hardcoded DEFAULT_ALLOWLIST. The CONTACTS.md path defaults to
+        # ~/.openclaw/workspace/CONTACTS.md when not provided.
+        if allowlist is not None:
+            self._allowlist: frozenset[str] = allowlist
+        else:
+            from .email_allowlist import load_allowlist_from_contacts
+            from pathlib import Path as _P
+            contacts = contacts_path if contacts_path is not None else (
+                _P.home() / ".openclaw" / "workspace" / "CONTACTS.md"
+            )
+            loaded = load_allowlist_from_contacts(contacts)
+            self._allowlist = loaded if loaded is not None else DEFAULT_ALLOWLIST
         self._smtp_sender = smtp_sender
         self._imap_fetcher = imap_fetcher
 

@@ -100,3 +100,34 @@ Append a section with the same structure: name, role, trust level, channels, pol
 - Don't send Eric a long status if a one-liner works. He skims.
 - Don't summarize what Ryan or Beth already told him. Cite source quotes if it matters.
 - Don't propose architectural changes to OL or Cora without first listing the source-of-truth files Eric would need to review.
+
+---
+
+## Email allowlist (Flyn EmailChannelAdapter)
+
+These email addresses bypass SPF/DKIM verification for inbound mail to Flyn.
+The `EmailChannelAdapter` (per Phase 6.5 spec) parses this section at startup
+and uses it as the trusted-sender set — any sender NOT in this list AND failing
+SPF/DKIM is rejected at `ingest()` (returns None; the message is silently dropped).
+
+**Format:** one email per bullet. Loader at
+`flyn_orchestrator/adapters/channels/email_allowlist.py` tolerates whitespace
+and ignores HTML comments. TBD/placeholder lines without an `@` are skipped.
+
+- ryanshuken@gmail.com
+- beth@cora.community
+- eric@cora.community
+
+<!--
+Beth's and Eric's @cora.community addresses are placeholders pending DNS
+provisioning for the cora.community domain. Update when their real addresses
+are live. ryanshuken@gmail.com is the current production source-of-truth.
+-->
+
+### How to update
+
+1. Add or remove a bullet under `## Email allowlist (Flyn EmailChannelAdapter)`
+2. Restart the orchestrator service: `launchctl unload ~/Library/LaunchAgents/ai.flyn.orchestrator.plist && launchctl load ~/Library/LaunchAgents/ai.flyn.orchestrator.plist`
+3. Verify with a sanity-curl: an email from the new sender should produce an `InboundTaskRequest`; one from an excluded sender should drop silently.
+
+The allowlist is checked at `ingest()` time. Pre-existing tasks created by since-removed senders are NOT retroactively rejected.

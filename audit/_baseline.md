@@ -747,7 +747,7 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - Allowlist-first auth — Ryan/Beth/Eric always pass regardless of SPF/DKIM verdict; external senders must have at least one passing auth header
 
 **New threats:**
-- **Allowlist hardcoded vs sourced from CONTACTS.md** — MVP has the allowlist hardcoded in `email.py:DEFAULT_ALLOWLIST`. When CONTACTS.md becomes the source of truth (Phase 1b.6 wired it for auth tiers but not for email allowlist), keep the two in sync OR delete the hardcoded fallback.
+- ~~**Allowlist hardcoded vs sourced from CONTACTS.md** — MVP has the allowlist hardcoded in `email.py:DEFAULT_ALLOWLIST`. When CONTACTS.md becomes the source of truth, keep the two in sync OR delete the hardcoded fallback.~~ **RESOLVED** by PR #22 (§Δ.contacts-allowlist): EmailChannelAdapter now loads from `workspace/CONTACTS.md` `## Email allowlist (Flyn EmailChannelAdapter)` section by default; falls back to DEFAULT_ALLOWLIST when the section is absent.
 - **Injection patterns are a moving target** — the catalog is regex + pattern-matching. Real attackers will route around it (Unicode confusables, multi-step prompts, encoded payloads). Treat as defense-in-depth, not a wall. Consider adding an LLM-based scanner pass in Phase 6b.
 
 ### §Δ.7-partial — Multi-PM adapters (PR #11, 2026-05-16)
@@ -824,6 +824,19 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **One retry budget shared across both gates** — if editor blocks initial draft, retry runs; if then fact-checker blocks the retry's draft, we go to CHANGES_REQUESTED rather than running a second retry. This is by design (avoid runaway loops) but means a draft that almost-passes-editor-but-fails-fact-check on retry doesn't get a second swing at fact-check.
 - **Retry re-runs editor even if editor passed initially** — if fact-checker blocks the first time, the retry path runs the full editor + fact-check cycle again. The retry draft might fail an editor pass that the first draft cleared. Tradeoff: simpler control flow vs. potentially wasted editor budget.
 - **`_finding_dict` is duck-typed across two finding types** — `EditFinding` (severity / type / where / suggestion) and `FactCheckFinding` (severity / category / note) share the helper. If a future finding type adds new fields, update `_finding_dict` rather than introducing a third helper.
+
+### §Δ.contacts-allowlist — CONTACTS.md-driven email allowlist (PR #22, 2026-05-18)
+
+**New patterns:**
+- **`workspace/CONTACTS.md` becomes the source of truth for the email allowlist** — the hardcoded `DEFAULT_ALLOWLIST` in `email.py` is now a fallback, not the canonical list. Add or remove allowed senders by editing the `## Email allowlist (Flyn EmailChannelAdapter)` section in CONTACTS.md and restarting the orchestrator.
+- **Markdown-section loader at `flyn_orchestrator/adapters/channels/email_allowlist.py`** — `load_allowlist_from_contacts(path) → Optional[frozenset[str]]`. Returns None when the section is missing (caller falls back), `frozenset()` when the section is present-but-empty (explicit reject-all), or the parsed emails. Tolerates HTML comments, TBD placeholders, both `-` and `*` bullets, and case-insensitive heading match.
+- **Three-tier allowlist precedence in EmailChannelAdapter**: explicit `allowlist=frozenset(...)` constructor arg > `contacts_path=` loader > hardcoded `DEFAULT_ALLOWLIST`. The path defaults to `~/.openclaw/workspace/CONTACTS.md` when not specified.
+- **Section-update runbook documented in CONTACTS.md itself** — 3-step procedure (edit bullet, restart launchd plist, sanity-curl). Operator doesn't need to read code to change auth surface.
+
+**New threats:**
+- **Allowlist is loaded once at adapter construction** — changes to CONTACTS.md don't take effect until the orchestrator restarts. Tradeoff vs. re-reading the file on every `ingest()` call (which would add filesystem I/O to the hot path).
+- **Empty-section semantics could surprise** — a CONTACTS.md section with the heading but no bullets means "reject everyone not passing SPF/DKIM", not "fall back to default". This is intentional (explicit override) but the runbook should call it out more loudly. Mitigation: the section docstring inside CONTACTS.md says "one email per bullet" which implies bullets are required.
+- **No live-reload on file change** — a future Phase 6b could add an inotify/kqueue watcher that re-loads on CONTACTS.md modification. Currently it's restart-only.
 
 ---
 
