@@ -847,9 +847,20 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Per-method event_type granularity for webhook adapter** — `WebhookPMAdapter._post` accepts an `event_type` for the webhook payload itself; the swallowed-error body names that event (`webhook.task_created swallowed OSError: ...`) so an observer knows which lifecycle event failed.
 
 **New threats:**
-- **Wiring is per-adapter-instance, not central** — each adapter takes `memory_emitter` separately. A future PMRegistry / ChannelRegistry could inject this automatically; currently the bootstrap code (server.py, TaskRouter init) must thread it through. If a new adapter is registered without `memory_emitter`, its swallowed errors stay invisible.
+- ~~**Wiring is per-adapter-instance, not central** — each adapter takes `memory_emitter` separately. A future PMRegistry / ChannelRegistry could inject this automatically; currently the bootstrap code (server.py, TaskRouter init) must thread it through. If a new adapter is registered without `memory_emitter`, its swallowed errors stay invisible.~~ **RESOLVED** by PR #27 (§Δ.registry-auto-wire): registries now accept `memory_emitter` constructor kwarg and auto-wire it into every adapter that has the `_memory_emitter` slot. `attach_memory_emitter()` retro-wires already-registered adapters when the emitter is constructed after them. Explicit per-instance configuration always wins.
 - **Dedup key collapses repeated identical errors per task** — `adapter-{name}-{method}-{task_id}` means 100 OSError instances from the same `webhook.task_created` call against the same task produce 1 event, not 100. This is a feature (not noise) but means error frequency is NOT observable from memory events alone; logs/cost-ledger are the right place for per-call counts.
 - **Memory layer load** — every swallowed error round-trips through `MemoryEmitter.emit()` → HTTP POST to `:8400`. If the memory router is the same failure point that's affecting an adapter (e.g., network partition), the emit itself may fail. Mitigation: helper swallows emit errors. Observability becomes silent in that case, but the adapter still completes its primary work.
+
+### §Δ.registry-auto-wire — PMRegistry/ChannelRegistry auto-wire memory_emitter (PR #27, 2026-05-18)
+
+**New patterns:**
+- **Centralized observability wiring at the registry layer** — `_NamedRegistry.__init__` accepts an optional `memory_emitter`. On `register()`, if the adapter exposes a `_memory_emitter` slot AND that slot is `None`, the registry's default is wired in. Explicit per-instance configuration always wins.
+- **Retro-wire via `attach_memory_emitter(emitter)`** — sets the default emitter AND walks all already-registered adapters to wire it in. Supports the common bootstrap order where the `MemoryEmitter` is constructed after the registries.
+- **Slot-based introspection, not type assertion** — `hasattr(adapter, "_memory_emitter")` decides whether to wire. Adapters that don't support observability (`LinearPMAdapter` stub today) are safely skipped without raising and without auto-creating the attribute (which would silently mask a real bug).
+
+**New threats:**
+- **Slot name is private convention** — `_memory_emitter` is the agreed slot. If a future adapter author uses `_memory` or `_emitter`, the registry won't auto-wire it. Mitigation: KNOWLEDGE/20 documents the convention; the cookbook (`docs/cookbooks/add-a-pm-adapter.md`) should add a note (followup).
+- **Retro-wire only sets when slot is None** — if an adapter was constructed with `memory_emitter=some_other_emitter`, `attach_memory_emitter()` won't override it. That's the documented "explicit wins" behavior, but means migrating from explicit-per-instance to registry-driven requires resetting the slot to None first. Operationally rare; tested in `test_attach_memory_emitter_preserves_explicit_configuration`.
 
 ---
 
