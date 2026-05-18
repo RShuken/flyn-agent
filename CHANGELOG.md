@@ -10,6 +10,63 @@ Pending work — see `RESUME-HERE.md` "Phase 6/7 remaining buildable-without-blo
 
 ---
 
+## [PR #14] 2026-05-16 — Audit baseline: per-phase deltas (closes X.2)
+
+### Added
+- `audit/_baseline.md` gains a `§Δ` section with 11 per-phase subsections (Δ.0 through Δ.7-partial + Δ.hygiene). Each subsection documents **New patterns** (positive contributions) and **New threats** (warnings to future work) for its phase.
+- Going forward, every phase PR appends its own `§Δ.<phase-id>` block at merge time.
+
+### Changed
+- Cross-cutting rubric: X.2 → ✅. Score 80/87 → **81/87 (93%)**. Cross-cutting 7/8 → **8/8 (100%)**.
+
+### Notes
+- Pure docs — all 325 tests unchanged.
+- Threat highlights: allowlist-hardcoded-vs-CONTACTS.md (Δ.6), injection-patterns-are-a-moving-target (Δ.6), rubric drift caught by audit PR #10 (Δ.hygiene).
+
+---
+
+## [PR #13] 2026-05-16 — Phase 6 partial: EmailChannelAdapter + SPF/DKIM + injection-detection
+
+### Added
+- `flyn_orchestrator/adapters/channels/email.py` — `EmailChannelAdapter` with injectable `smtp_sender`/`imap_fetcher` for tests; stub-mode when config absent. Adapter never raises — SMTP exceptions swallowed in `send`.
+- `flyn_orchestrator/adapters/channels/email_auth.py` — RFC 8601 `Authentication-Results` parser + `verify_email_auth`; failed auth → ingest returns None unless sender is allowlisted.
+- `flyn_orchestrator/adapters/channels/injection_detect.py` — 8 regex patterns covering instruction-override, role-reassignment, role-confusion, base64 smuggling, zero-width unicode, and excessive whitespace.
+- `flyn_orchestrator/adapters/channels/email_subject.py` — TAG constants (`[FLYN-TASK]`, `[FLYN-REPLY:<id>]`, `[FLYN-APPROVE:<id>]`, `[FLYN-REJECT:<id>]`) + round-trip-stable `parse_subject`/`format_subject`.
+- 76 new tests (`test_email_auth.py` ×17, `test_email_subject.py` ×14, `test_injection_detect.py` ×22, `test_email_adapter.py` ×23). Test count: 249 → 325.
+- `docs/email-subject-tags.md` — user-facing convention reference.
+
+### Changed
+- Phase 6 rubric criteria 6.3, 6.5, 6.6, 6.7 → ✅. Score 76/87 → **80/87 (92%)**.
+
+### Notes
+- **Phase 6 still pending (blocked externally):**
+  - **6.1 GoogleChatChannelAdapter** — blocked on Google Workspace OAuth provisioning.
+  - **6.2 Google Workspace OAuth + member verification** — blocked.
+  - **6.4 DNS + SPF + DKIM for `getcora.io`** — blocked on Ryan provisioning DNS records.
+  - **6.8 E2E round-trip** — blocked on 6.1 + 6.4.
+- Code is live-ready: once DNS TXT records land, flip `FLYN_EMAIL_SMTP_HOST` or add `email:flynn@getcora.io` to `auth-profiles.json` and the adapter ships mail.
+
+---
+
+## [PR #12] 2026-05-16 — Cross-cutting hygiene: KNOWLEDGE + RESUME-HERE + CHANGELOG
+
+### Added
+- `RESUME-HERE.md` — "Flyn Orchestrator — current state (2026-05-16)" section: phase shipping table (0–7), live services on 4C, auth-contention warning, manual ship-gates pending Ryan, 7 KNOWLEDGE entries from this build.
+- 4 new KNOWLEDGE entries:
+  - `18` — Cross-module mock patching (Phase 2c T05 — `subprocess.run` patches at `router.*` silently miss calls in extracted `dev_phase.*`).
+  - `19` — Test the public API, not internals (Phase 2c-cleanup — private-method test forced a 24-line shim through refactor).
+  - `20` — Adapters never raise (Phase 7 PMAdapter suite — HTTP failures must stub-return, not propagate to task `FAILED`).
+  - `21` — OAuth vs API key token discrimination (loader was passing `sk-ant-oat-*` as `ANTHROPIC_API_KEY`; every worker failed silently).
+- `CHANGELOG.md` — retroactive Keep-a-Changelog entries for PRs #1–#11.
+
+### Changed
+- Cross-cutting rubric: X.1, X.3, X.4 → ✅. Score 73/87 → **76/87 (87%)**. Cross-cutting 4/8 → **7/8**.
+
+### Notes
+- No code changes — pure docs. All 249 tests unchanged.
+
+---
+
 ## [PR #11] 2026-05-16 — Phase 7 partial: OLWiki + Webhook PMAdapters
 
 ### Added
