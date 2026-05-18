@@ -111,3 +111,38 @@ def test_build_app_runs_gc_logs_on_startup(monkeypatch, tmp_path):
     server_module.build_app()
     assert len(calls) >= 1
     assert "logs" in calls[0]["log_dir"]
+
+
+def test_lint_uses_autodiscovery_when_no_entities(monkeypatch, tmp_path):
+    """When /api/memory/lint receives no entities, it pulls from wiki/index.md."""
+    from flyn_memory_router import query as query_module
+    from flyn_memory_router.types import Hit
+
+    # Build a vault fixture with an index pointing at "beth"
+    vault = tmp_path / "vault"
+    wiki = vault / "wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "index.md").write_text("# Index\n- [[beth]]\n")
+
+    # Fake adapters that return agreeing hits for "beth" (no drift)
+    class _FakeR:
+        def __init__(self, name):
+            self.name = name
+            self.default_included = True
+            self.read_timeout = 1.0
+
+        async def query(self, q, top_k=10):
+            return [Hit(text="Beth Kukla, COO Cora", source=f"{self.name}/test", score=0.9, metadata={})]
+
+    monkeypatch.setattr(query_module, "_load_adapters",
+                        lambda include, exclude: [_FakeR("hot"), _FakeR("warm")])
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path / "router"))
+    monkeypatch.setenv("FLYN_WORKSPACE", str(tmp_path / "ws"))
+    monkeypatch.setenv("FLYN_REFERENCE_VAULT", str(vault))
+    client = TestClient(build_app())
+
+    # Send lint with NO entities field — should autodiscover "beth" from vault
+    resp = client.post("/api/memory/lint", json={})
+    assert resp.status_code == 200
+    # No drift expected (both sources agree); findings list is empty but route succeeded
+    assert resp.json() == {"findings": []}

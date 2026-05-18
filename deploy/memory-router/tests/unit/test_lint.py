@@ -35,3 +35,30 @@ async def test_no_finding_when_only_one_source_has_data():
         "warm/graphiti": [],
     }
     assert await detect_drift("Beth", per_source) == []
+
+
+def test_discover_entities_from_vault_parses_wikilinks(tmp_path):
+    from flyn_memory_router.lint import discover_entities_from_vault
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "index.md").write_text(
+        "# Index\n\n## People\n- [[beth]]\n- [[eric]]\n\n"
+        "## Projects\n- [[openlit]]\n"
+    )
+    entities = discover_entities_from_vault(tmp_path)
+    assert set(entities) == {"beth", "eric", "openlit"}
+
+
+def test_discover_entities_returns_empty_when_no_index(tmp_path):
+    from flyn_memory_router.lint import discover_entities_from_vault
+    assert discover_entities_from_vault(tmp_path) == []
+
+
+def test_discover_entities_dedupes_repeats(tmp_path):
+    from flyn_memory_router.lint import discover_entities_from_vault
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "index.md").write_text("- [[beth]]\n- [[beth]]\n- [[Eric]]\n")
+    entities = discover_entities_from_vault(tmp_path)
+    # case-preserving but dedup-by-exact-text
+    assert sorted(entities) == ["Eric", "beth"]

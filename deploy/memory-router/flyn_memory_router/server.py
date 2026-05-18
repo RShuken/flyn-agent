@@ -51,7 +51,7 @@ class _QueryBody(BaseModel):
 
 
 class _LintBody(BaseModel):
-    entities: list[str] = Field(..., min_length=1, max_length=100)
+    entities: list[str] = Field(default_factory=list, max_length=100)
     sources: list[str] | None = None
 
 
@@ -167,8 +167,11 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     @app.post("/api/memory/lint")
     async def lint_route(body: _LintBody) -> dict[str, Any]:
+        entities = body.entities
+        if not entities:
+            entities = lint_module.discover_entities_from_vault(cfg.reference_vault)
         findings = []
-        for entity in body.entities:
+        for entity in entities:
             result = await query_module.query(entity, include=body.sources, top_k=3)
             per_source: dict[str, list[Hit]] = {}
             for h in result.hits:

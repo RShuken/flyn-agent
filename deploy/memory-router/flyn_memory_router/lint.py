@@ -7,8 +7,33 @@ Reported, never auto-resolved.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from .types import Hit, LintFinding
+
+
+_WIKILINK_RE_LINT = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+
+
+def discover_entities_from_vault(vault: Path) -> list[str]:
+    """Parse [[wikilinks]] from vault/wiki/index.md. Returns deduplicated list
+    preserving first-seen casing. Empty list if index.md missing.
+    """
+    idx = vault / "wiki" / "index.md"
+    if not idx.exists():
+        return []
+    try:
+        content = idx.read_text()
+    except OSError:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _WIKILINK_RE_LINT.finditer(content):
+        name = match.group(1).strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
 
 
 def _tokens(s: str) -> set[str]:
