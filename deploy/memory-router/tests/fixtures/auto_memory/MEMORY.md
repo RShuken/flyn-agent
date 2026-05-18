@@ -1,0 +1,2 @@
+- [Beth role](feedback_beth.md) — Beth = COO Cora, PM for OL
+- [no autostart](feedback_no_unrequested_autostart.md) — don't add launchd login items

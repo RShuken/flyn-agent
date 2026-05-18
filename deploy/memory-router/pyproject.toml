@@ -16,7 +16,11 @@ dependencies = [
   "pydantic>=2.5",
   "httpx>=0.27",
   "slowapi>=0.1.9",
+  "pyyaml>=6.0",
 ]
+
+[project.scripts]
+flyn-mem = "flyn_memory_router.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -26,5 +30,5 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit", "tests/integration"]
 asyncio_mode = "auto"

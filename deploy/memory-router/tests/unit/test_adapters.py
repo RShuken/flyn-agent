@@ -253,3 +253,21 @@ def test_hot_write_preserves_existing_permanent(tmp_path):
     pins = a._store.list_all()
     perm_pin = next(p for p in pins if p.subject == "T-42")
     assert perm_pin.permanent is True
+
+
+def test_read_adapter_protocol_recognized():
+    from flyn_memory_router.adapters.base import ReadAdapter
+    from flyn_memory_router.types import Hit
+    import asyncio
+
+    class FakeRead:
+        name = "fake"
+        read_timeout = 2.0
+        default_included = True
+        async def query(self, q: str, top_k: int = 10) -> list[Hit]:
+            return [Hit(text=q.upper(), source="fake/test", score=1.0, metadata={})]
+
+    fake = FakeRead()
+    assert isinstance(fake, ReadAdapter)
+    hits = asyncio.run(fake.query("hello", top_k=1))
+    assert hits[0].text == "HELLO"

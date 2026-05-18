@@ -14,19 +14,23 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from . import lint as lint_module
+from . import query as query_module
 from .adapters import AdapterRegistry
 from .adapters.cold import ColdCapturesIndexAdapter
 from .adapters.cool import CoolDailyRollupAdapter
 from .adapters.hot import HotMemoryMdAdapter
 from .adapters.lesson import LessonKnowledgeAdapter
 from .adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
-from .config import Config
+from .config import Config, READ_SOURCES
 from .dedup import DedupStore
+from .health_tracker import TRACKER
+from .logging_contract import gc_logs
 from .pin import PinRequest, pin_permanent, unpin
 from .router import Router
-from .types import EventResult, InboundEvent, Tier
+from .types import EventResult, Hit, InboundEvent, Tier
 
 
 class _PinBody(BaseModel):
@@ -39,6 +43,18 @@ class _MaintBody(BaseModel):
     sender_role: Literal["owner", "teammate", "other"]
 
 
+class _QueryBody(BaseModel):
+    q: str = Field(..., min_length=1, max_length=2000)
+    include: list[str] | None = None
+    exclude: list[str] | None = None
+    top_k: int = Field(10, ge=1, le=100)
+
+
+class _LintBody(BaseModel):
+    entities: list[str] = Field(default_factory=list, max_length=100)
+    sources: list[str] | None = None
+
+
 def build_app(http_client: Any | None = None) -> FastAPI:
     cfg = Config.from_env()
     cfg.home.mkdir(parents=True, exist_ok=True)
@@ -48,6 +64,13 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     # Ensure the DB directory exists
     cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Phase 0f task A2: log retention sweep at startup
+    try:
+        gc_logs(cfg.log_dir)
+    except Exception:
+        # Never fail startup over log GC; the daily task will retry.
+        pass
 
     dedup = DedupStore(db_path=cfg.db_path)
     registry = AdapterRegistry()
@@ -77,6 +100,19 @@ def build_app(http_client: Any | None = None) -> FastAPI:
     router = Router(registry=registry, dedup=dedup)
 
     app = FastAPI(title="flyn-memory-router", version="0.1.0")
+
+    @app.on_event("startup")
+    async def _schedule_daily_gc():
+        async def _loop():
+            import asyncio
+            while True:
+                await asyncio.sleep(86400)
+                try:
+                    gc_logs(cfg.log_dir)
+                except Exception:
+                    pass
+        import asyncio
+        asyncio.create_task(_loop())
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -110,5 +146,52 @@ def build_app(http_client: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="owner only")
         removed = hot.decay()
         return {"ok": True, "removed": removed}
+
+    @app.post("/api/memory/query")
+    async def query_route(body: _QueryBody) -> dict[str, Any]:
+        result = await query_module.query(
+            body.q, include=body.include, exclude=body.exclude, top_k=body.top_k
+        )
+        # Catastrophic: every included adapter failed
+        if (result.source_errors and result.included_sources
+                and len(result.source_errors) == len(result.included_sources)):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "query_id": result.query_id,
+                    "source_errors": [e.model_dump() for e in result.source_errors],
+                    "included_sources": result.included_sources,
+                },
+            )
+        return result.model_dump()
+
+    @app.post("/api/memory/lint")
+    async def lint_route(body: _LintBody) -> dict[str, Any]:
+        entities = body.entities
+        if not entities:
+            entities = lint_module.discover_entities_from_vault(cfg.reference_vault)
+        findings = []
+        for entity in entities:
+            result = await query_module.query(entity, include=body.sources, top_k=3)
+            per_source: dict[str, list[Hit]] = {}
+            for h in result.hits:
+                per_source.setdefault(h.source, []).append(h)
+            ent_findings = await lint_module.detect_drift(entity, per_source)
+            findings.extend(ent_findings)
+        return {"findings": [f.model_dump() for f in findings]}
+
+    @app.get("/api/memory/sources")
+    def sources_route() -> list[dict[str, Any]]:
+        out = []
+        for name, rsc in READ_SOURCES.items():
+            snap = TRACKER.snapshot(name)
+            out.append({
+                "name": name,
+                "kind": "read",
+                "default_included": rsc.default_included,
+                "timeout_s": rsc.timeout,
+                **snap,
+            })
+        return out
 
     return app

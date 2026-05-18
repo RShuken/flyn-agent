@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from ..types import InboundEvent
+from ..types import InboundEvent, Hit
 
 
 @dataclass(frozen=True)
@@ -21,4 +21,17 @@ class MemoryAdapter(Protocol):
     name: str
 
     def write(self, event: InboundEvent) -> WriteResult:
+        ...
+
+
+@runtime_checkable
+class ReadAdapter(Protocol):
+    """Implement `query(q, top_k)`. Returned hits use adapter-native scoring;
+    cross-source ranking happens in query.py via RRF."""
+
+    name: str
+    read_timeout: float
+    default_included: bool
+
+    async def query(self, q: str, top_k: int = 10) -> list[Hit]:
         ...
