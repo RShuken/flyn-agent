@@ -116,6 +116,10 @@ def build_app(
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
         try:
             return task_router.handle_approval(task_id, decision)
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except NotImplementedError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
