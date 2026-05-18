@@ -189,9 +189,9 @@ Phases 6-7 (multi-channel, multi-PM) remain; both partially blocked on external 
 | 5.6 | Before-state snapshot taken; validator compares against post-state | ✅ | `audit.snapshot_target` + `audit.verify_target_changed` SHA256 each; `_execute_ops_and_finalize` snapshots before+after | — |
 | 5.7 | Every ops action logged in `audit_log` table with before/after hashes | ✅ | `state.append_audit` writes pre-snapshot/dry-run/execute/post-snapshot/validate rows; UNIQUE(task_id, action, ts) | — |
 | 5.8 | Machine downgrades from human-judged tier are not allowed (one-way escalation) | ✅ | `risk_tier.max_tier()` in `ops.classify_risk`: `final_tier = max_tier(llm_tier, rule_result.tier)`; LLM downgrade attempt rejected (test_classify_risk_rejects_llm_downgrade) | — |
-| 5.9 | E2E ship-gate: one real low-risk ops task (rotate a test token) — validator green | 🟡 | Playbook `tests/e2e/test_phase_5_ship_gate.md` — Procedures A/B/C verifiable by curl (autonomous); needs Ryan to sign Procedure C critical-tier approval | Ryan to run on live :8300 |
+| 5.9 | E2E ship-gate: one real low-risk ops task (rotate a test token) — validator green | ✅ | Procedure C executed live on :8300 (2026-05-18): teammate beth@cora correctly rejected with HTTP 403; owner ryanshuken@gmail.com with empty rationale rejected with HTTP 400; owner with rationale approved, full 5-row audit trail (pre-snapshot, dry-run, ryanshuken@gmail.com approved, post-snapshot, validate); fixture file `/tmp/flyn-shipgate-token.txt` deleted. Revealed and fixed two bugs in the process: PR #23 (`FLYN_OWNER_IDENTIFIERS` env-based role lookup replacing broken gate-derived inference) + PR #24 (PermissionError→403, ValueError→400 mapping in /approve) | — |
 
-**Score: 8/9 ✅ + 1 🟡 (ship-gate Procedure C needs Owner approval from Ryan)** — all 9 criteria implemented 2026-05-15 across 6 commits
+**Score: 9/9 ✅** — all 9 criteria implemented + ship-gate Procedure C verified live 2026-05-18
 
 ---
 
