@@ -102,7 +102,11 @@ def test_content_workflow_default_delivers_as_draft(content_router):
 
 
 def test_content_workflow_blocks_on_editor_failure(content_router):
-    """When the editor returns passed=False with a critical finding, task → CHANGES_REQUESTED."""
+    """When the editor blocks both initial draft AND retry, task → CHANGES_REQUESTED.
+
+    Phase 4b added auto-rerun; if both editor passes block, we still reach CHANGES_REQUESTED
+    and record retry_count=1 + blocking findings on payload.
+    """
     router, store, tmp_path = content_router
 
     original_run = router._dispatcher._registry.get("claude-p").run
@@ -128,6 +132,69 @@ def test_content_workflow_blocks_on_editor_failure(content_router):
     task_id = router.accept(req)
     final = router.run_task(task_id)
     assert final.state == TaskState.CHANGES_REQUESTED
+    # Phase 4b: retry attempted; payload records retry_count + blocking findings
+    payload = final.raw_payload or {}
+    assert payload.get("content_retry_count") == 1, \
+        f"Expected content_retry_count=1, got {payload.get('content_retry_count')}"
+    assert payload.get("content_blocking_at") == "editor"
+    assert payload.get("content_blocking_findings"), \
+        f"Expected blocking findings in payload; got {payload}"
+
+
+def test_content_workflow_retry_succeeds_after_editor_block(content_router):
+    """Editor blocks first time, passes second time → DELIVERABLE_READY.
+
+    Phase 4b: auto-rerun should append editor findings to the writer prompt
+    and the second-pass draft should pass review.
+    """
+    router, store, tmp_path = content_router
+    original_run = router._dispatcher._registry.get("claude-p").run
+    editor_call_count = {"n": 0}
+    writer_prompts_seen: list[str] = []
+
+    def _retry_succeeds(spec, prompt, *, cost_tracker=None):
+        if spec.role == WorkerRole.WRITER:
+            writer_prompts_seen.append(prompt)
+        if spec.role == WorkerRole.EDITOR:
+            editor_call_count["n"] += 1
+            # First call blocks, second passes
+            if editor_call_count["n"] == 1:
+                body = {"passed": False, "summary": "tone mismatch",
+                        "edits": [{"severity": "critical", "type": "tone",
+                                  "where": "intro", "suggestion": "be friendlier"}]}
+            else:
+                body = {"passed": True, "summary": "looks good after retry",
+                        "edits": []}
+            wt = Path(spec.worktree_path); wt.mkdir(parents=True, exist_ok=True)
+            cap = wt / f"{spec.worker_id}.jsonl"
+            cap.write_text(json.dumps({"type":"result","result":json.dumps(body)}))
+            return WorkerResult(worker_id=spec.worker_id, exit_code=0, capture_path=cap,
+                                cost_usd=0.01, duration_ms=10, changed_files=[],
+                                summary=json.dumps(body))
+        return original_run(spec, prompt, cost_tracker=cost_tracker)
+    router._dispatcher._registry.get("claude-p").run = _retry_succeeds
+
+    req = InboundTaskRequest(
+        channel="manual", sender_identifier="ryan", sender_role="owner",
+        intent="draft something cheerful",
+        external_message_id="msg-c-retry",
+    )
+    task_id = router.accept(req)
+    final = router.run_task(task_id)
+
+    assert final.state == TaskState.DELIVERABLE_READY, \
+        f"Expected DELIVERABLE_READY after retry success, got {final.state!r}"
+    # Editor called twice (first blocks, second passes)
+    assert editor_call_count["n"] == 2, \
+        f"Expected 2 editor calls, got {editor_call_count['n']}"
+    # Writer called twice (initial + retry); second prompt has editor context
+    assert len(writer_prompts_seen) == 2, \
+        f"Expected 2 writer prompts (initial + retry), got {len(writer_prompts_seen)}"
+    retry_prompt = writer_prompts_seen[1]
+    assert "Editor findings from previous draft" in retry_prompt, \
+        "Retry writer prompt missing editor-findings header"
+    assert "be friendlier" in retry_prompt, \
+        "Retry writer prompt missing the specific blocking finding"
 
 
 def test_content_workflow_send_flow_transitions_to_final_approval(content_router):

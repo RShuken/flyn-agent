@@ -143,10 +143,18 @@ def spec_content(intent: str, *, scratch_dir: Path, backend: WorkerBackend,
 # ---------- 2. Draft (Writer) ----------
 
 def draft_content(content_spec: ContentSpec, *, scratch_dir: Path,
-                   backend: WorkerBackend, task_id: str = "content-draft") -> str:
-    """Run Writer; return draft text."""
+                   backend: WorkerBackend, task_id: str = "content-draft",
+                   extra_context: Optional[str] = None) -> str:
+    """Run Writer; return draft text.
+
+    If *extra_context* is provided (Phase 4b auto-rerun path), it's appended
+    to the writer's prompt with a `---` separator. This is how editor or
+    fact-checker findings are fed back to the writer on retry.
+    """
     prompt = (_load_prompt("writer")
               .replace("{SPEC_JSON}", _spec_to_json(content_spec)))
+    if extra_context:
+        prompt = prompt + "\n\n---\n\n" + extra_context
     spec = WorkerSpec(
         task_id=task_id, worker_id=f"{task_id}-writer", role=WorkerRole.WRITER,
         backend=backend.name, prompt_template="writer",

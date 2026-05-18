@@ -799,6 +799,21 @@ Many of these are NEW since our internal authoring docs were written. **Signific
 - **Retry shares the same scratch dir** — each researcher's worker_dir is `scratch_dir / sub_q["id"]`, identical between initial run and retry. The retry overwrites the initial capture file. If a future audit needs to inspect both runs' captures, we'll need to namespace by run-attempt.
 - **Critic prompt receives the same outputs format on retry** — the second critique sees the new researcher outputs but doesn't know they're a "retry attempt". A more sophisticated retry might tell the critic explicitly to grade against the prior findings.
 
+### §Δ.4b — Content auto-rerun on editor/fact-check block (PR #20, 2026-05-18)
+
+**New patterns:**
+- **Auto-retry-with-context** applied to the content workflow, symmetric to §Δ.3b. Either the editor or the fact-checker blocking the initial draft now triggers ONE retry with that gate's findings appended to the writer's prompt.
+- **Helper-function `_run_edit_and_factcheck`** in `content_phase.py` factors the two-gate review cycle into a single call returning `(edit_result, fc_result, failed_at, blocking)`. Makes the retry path a straight re-invocation rather than nested conditionals.
+- **Stage-typed retry context** — `_build_retry_context_content("editor", ...)` and `..._content("fact_checker", ...)` produce different markdown headers and field-extraction logic. The writer sees "Editor findings…" vs "Fact-checker findings…" so it can address the right concern.
+- **`extra_context` kwarg on `draft_content`** — same opt-in pattern as `run_researchers` in §Δ.3b.
+- **Memory events**: `content_retry_started`, `content_retry_passed`, `content_retry_failed`. Same naming pattern as research.
+- **Payload on terminal failure**: `content_retry_count=1`, `content_blocking_at=("editor"|"fact_checker")`, `content_blocking_findings=[serialized findings]`. A reviewer at CHANGES_REQUESTED can see exactly what's blocking.
+
+**New threats:**
+- **One retry budget shared across both gates** — if editor blocks initial draft, retry runs; if then fact-checker blocks the retry's draft, we go to CHANGES_REQUESTED rather than running a second retry. This is by design (avoid runaway loops) but means a draft that almost-passes-editor-but-fails-fact-check on retry doesn't get a second swing at fact-check.
+- **Retry re-runs editor even if editor passed initially** — if fact-checker blocks the first time, the retry path runs the full editor + fact-check cycle again. The retry draft might fail an editor pass that the first draft cleared. Tradeoff: simpler control flow vs. potentially wasted editor budget.
+- **`_finding_dict` is duck-typed across two finding types** — `EditFinding` (severity / type / where / suggestion) and `FactCheckFinding` (severity / category / note) share the helper. If a future finding type adds new fields, update `_finding_dict` rather than introducing a third helper.
+
 ---
 
 *Per-phase deltas added 2026-05-17 by Claude Opus 4.7 — closes cross-cutting criterion X.2. Going forward, each phase's PR adds its own `§Δ.<phase-id>` subsection here at merge time.*
