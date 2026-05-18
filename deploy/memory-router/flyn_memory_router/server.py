@@ -27,6 +27,7 @@ from .adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
 from .config import Config, READ_SOURCES
 from .dedup import DedupStore
 from .health_tracker import TRACKER
+from .logging_contract import gc_logs
 from .pin import PinRequest, pin_permanent, unpin
 from .router import Router
 from .types import EventResult, Hit, InboundEvent, Tier
@@ -64,6 +65,13 @@ def build_app(http_client: Any | None = None) -> FastAPI:
     # Ensure the DB directory exists
     cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Phase 0f task A2: log retention sweep at startup
+    try:
+        gc_logs(cfg.log_dir)
+    except Exception:
+        # Never fail startup over log GC; the daily task will retry.
+        pass
+
     dedup = DedupStore(db_path=cfg.db_path)
     registry = AdapterRegistry()
 
@@ -92,6 +100,19 @@ def build_app(http_client: Any | None = None) -> FastAPI:
     router = Router(registry=registry, dedup=dedup)
 
     app = FastAPI(title="flyn-memory-router", version="0.1.0")
+
+    @app.on_event("startup")
+    async def _schedule_daily_gc():
+        async def _loop():
+            import asyncio
+            while True:
+                await asyncio.sleep(86400)
+                try:
+                    gc_logs(cfg.log_dir)
+                except Exception:
+                    pass
+        import asyncio
+        asyncio.create_task(_loop())
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:

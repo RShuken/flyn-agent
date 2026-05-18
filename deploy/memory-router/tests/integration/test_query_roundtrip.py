@@ -95,3 +95,19 @@ def test_query_returns_502_when_all_sources_fail(app_with_all_failing):
     detail = resp.json()["detail"]
     assert len(detail["source_errors"]) == 2
     assert "query_id" in detail
+
+
+def test_build_app_runs_gc_logs_on_startup(monkeypatch, tmp_path):
+    """gc_logs should be invoked once at app build time."""
+    from flyn_memory_router import server as server_module
+    calls = []
+
+    def fake_gc_logs(log_dir, retention_days=90, max_bytes=None):
+        calls.append({"log_dir": str(log_dir), "retention_days": retention_days})
+
+    monkeypatch.setattr(server_module, "gc_logs", fake_gc_logs)
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path / "router"))
+    monkeypatch.setenv("FLYN_WORKSPACE", str(tmp_path / "ws"))
+    server_module.build_app()
+    assert len(calls) >= 1
+    assert "logs" in calls[0]["log_dir"]
