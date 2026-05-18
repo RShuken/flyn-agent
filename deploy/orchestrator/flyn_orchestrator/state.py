@@ -109,6 +109,27 @@ class StateStore:
             raw_payload=_json.loads(row[8]) if row[8] else None,
         )
 
+    def list_tasks_by_state(self, state: TaskState) -> list[TaskRecord]:
+        """Return all tasks currently in *state*. Used by the daily heartbeat
+        sweep to find expired AWAITING_OWNER_APPROVAL tasks (Phase 5b sweep)."""
+        import json as _json
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT task_id, workflow, state, sender_role, sender_identifier, intent, "
+                "created_at, budget_usd, raw_payload FROM tasks WHERE state = ?",
+                (state.value,),
+            ).fetchall()
+        return [
+            TaskRecord(
+                task_id=r[0], workflow=r[1], state=TaskState(r[2]),
+                sender_role=r[3], sender_identifier=r[4], intent=r[5],
+                created_at=datetime.fromisoformat(r[6]) if r[6] else None,
+                budget_usd=r[7],
+                raw_payload=_json.loads(r[8]) if r[8] else None,
+            )
+            for r in rows
+        ]
+
     def transition(self, task_id: str, from_state: TaskState, to_state: TaskState,
                    actor: str, reason: str, payload: Optional[dict[str, Any]] = None) -> bool:
         """Returns True if a new event row was inserted, False on idempotent re-apply."""
