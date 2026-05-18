@@ -51,6 +51,42 @@ def _get(d: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
+def _meeting_obj(payload: dict) -> dict:
+    """Krisp's real `note_generated` event nests meeting under `data.meeting`;
+    our older spec fixtures use top-level `meeting`. Tolerate both."""
+    if isinstance(payload.get("meeting"), dict):
+        return payload["meeting"]
+    data = payload.get("data") or {}
+    if isinstance(data.get("meeting"), dict):
+        return data["meeting"]
+    return {}
+
+
+def _normalize_attendees(items: Any) -> list[dict]:
+    """Krisp's `participants`/`speakers` arrays have split `first_name`/
+    `last_name` with no combined `name`. Backfill `name` so downstream
+    callers (Telegram pings, categorizer) don't need to know the source."""
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if it.get("name"):
+            out.append(it)
+            continue
+        first = it.get("first_name") or ""
+        last = it.get("last_name") or ""
+        combined = " ".join(p for p in (first, last) if p).strip()
+        if combined:
+            merged = dict(it)
+            merged["name"] = combined
+            out.append(merged)
+        else:
+            out.append(it)
+    return out
+
+
 def _extract_meeting_fields(payload: dict) -> dict[str, Any]:
     """Best-effort map from Krisp's payload to our meetings columns.
 
@@ -59,15 +95,17 @@ def _extract_meeting_fields(payload: dict) -> dict[str, Any]:
     columns are only populated when their respective event-type sub-object
     is present, so multiple events for the same meeting merge cleanly.
     """
-    meeting = payload.get("meeting") or {}
+    meeting = _meeting_obj(payload)
     out: dict[str, Any] = {
         "meeting_id": _get(meeting, "id", "meeting_id", "uuid"),
         "title": _get(meeting, "title", "name"),
-        "started_at": _get(meeting, "started_at", "start_time", "start"),
-        "ended_at": _get(meeting, "ended_at", "end_time", "end"),
+        "started_at": _get(meeting, "started_at", "start_time", "start", "start_date"),
+        "ended_at": _get(meeting, "ended_at", "end_time", "end", "end_date"),
         "duration_seconds": _get(meeting, "duration_seconds", "duration"),
         "meeting_url": _get(meeting, "url", "link", "meeting_url"),
-        "attendees": json.dumps(_get(meeting, "attendees", "participants", default=[])),
+        "attendees": json.dumps(_normalize_attendees(
+            _get(meeting, "attendees", "participants", "speakers", default=[])
+        )),
     }
     # Content sub-objects — each event may carry one of these.
     if "transcript" in payload and isinstance(payload["transcript"], dict):
@@ -78,6 +116,11 @@ def _extract_meeting_fields(payload: dict) -> dict[str, Any]:
         out["outline_text"] = _get(payload["outline"], "text", "content", "body")
     if "key_points" in payload and isinstance(payload["key_points"], dict):
         out["key_points_text"] = _get(payload["key_points"], "text", "content", "body")
+    # Krisp's `note_generated` event ships markdown notes under data.raw_content;
+    # no per-section sub-object like our spec fixtures had.
+    data = payload.get("data") or {}
+    if isinstance(data.get("raw_content"), str):
+        out["notes_text"] = data["raw_content"]
     return out
 
 
@@ -169,8 +212,8 @@ async def receive_krisp(
             (
                 event_id,
                 "krisp",
-                str(payload.get("event_type") or payload.get("type") or ""),
-                str((payload.get("meeting") or {}).get("id") or ""),
+                str(payload.get("event_type") or payload.get("event") or payload.get("type") or ""),
+                str(_meeting_obj(payload).get("id") or ""),
                 raw.decode("utf-8", errors="replace"),
             ),
         )

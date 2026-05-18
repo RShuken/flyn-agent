@@ -137,6 +137,57 @@ def test_payload_extracts_meeting_and_upserts(client):
     assert row[3] == "pending"
 
 
+def test_krisp_real_note_generated_payload_extracts_fields(client):
+    """Real Krisp shape (captured 2026-05-18 from dashboard "Send sample note"):
+    event_id at top-level `id`, event-type key is `event`, meeting object is
+    nested under `data.meeting`, dates use `start_date`/`end_date`, attendees
+    come in as `participants` with split `first_name`/`last_name`, notes
+    arrive in `data.raw_content` as markdown."""
+    fixture_path = (
+        Path(__file__).resolve().parents[3]
+        / "scripts" / "dev" / "fixtures" / "krisp_note_generated_real.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+
+    r = client.post(
+        "/api/meetings/krisp",
+        json=payload,
+        headers={"X-OL-Krisp-Token": "krisp-test-token"},
+    )
+    assert r.status_code == 200
+    assert r.json()["event_id"] == "019e3c2a424274af8244d801fe44d27e"
+
+    import sqlite3
+    conn = sqlite3.connect(os.environ["FLYN_MEETINGS_DB"])
+
+    event_row = conn.execute(
+        "SELECT event_type, meeting_id FROM meeting_events WHERE event_id = ?",
+        ("019e3c2a424274af8244d801fe44d27e",),
+    ).fetchone()
+    assert event_row is not None
+    assert event_row[0] == "note_generated"
+    assert event_row[1] == "019e3c2a423874ab990778fbb35a0b39"
+
+    meeting_row = conn.execute(
+        "SELECT title, started_at, ended_at, duration_seconds, meeting_url, "
+        "notes_text, attendees FROM meetings WHERE meeting_id = ?",
+        ("019e3c2a423874ab990778fbb35a0b39",),
+    ).fetchone()
+    conn.close()
+    assert meeting_row is not None
+    title, started, ended, duration, url, notes, attendees_json = meeting_row
+    assert title.startswith("Hey")
+    assert started == "2026-05-18T17:00:00.000Z"
+    assert ended == "2026-05-18T17:01:15.000Z"
+    assert duration == 75
+    assert url == "https://app.krisp.ai/n/019e3c2a423874ab990778fbb35a0b39"
+    assert notes is not None and "Action Items" in notes
+    attendees = json.loads(attendees_json)
+    names = {a.get("name") for a in attendees}
+    assert "Alice Smith" in names
+    assert "Bob Johnson" in names
+
+
 def test_second_event_merges_into_same_meeting(client):
     # First event: transcript
     p1 = {

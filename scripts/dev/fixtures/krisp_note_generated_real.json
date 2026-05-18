@@ -1,0 +1,37 @@
+{
+  "id": "019e3c2a424274af8244d801fe44d27e",
+  "event": "note_generated",
+  "data": {
+    "meeting": {
+      "id": "019e3c2a423874ab990778fbb35a0b39",
+      "title": "Hey 👋 Let's get started with Krisp!",
+      "url": "https://app.krisp.ai/n/019e3c2a423874ab990778fbb35a0b39",
+      "start_date": "2026-05-18T17:00:00.000Z",
+      "end_date": "2026-05-18T17:01:15.000Z",
+      "duration": 75,
+      "speakers": [
+        {"index": 0, "id": "demo-speaker-bob", "email": "bob@example.com", "first_name": "Bob", "last_name": "Johnson"},
+        {"index": 1, "id": "demo-speaker-alice", "email": "alice@example.com", "first_name": "Alice", "last_name": "Smith"}
+      ],
+      "participants": [
+        {"id": "demo-participant-alice", "email": "alice@example.com", "first_name": "Alice", "last_name": "Smith"},
+        {"id": "demo-participant-bob", "email": "bob@example.com", "first_name": "Bob", "last_name": "Johnson"}
+      ],
+      "calendar_event_id": "demo-calendar-event-getting-started"
+    },
+    "template": {"id": "demo-template-getting-started", "name": "Getting Started"},
+    "sections": {
+      "action_items": [
+        {"id": "demo-action-item-try-krisp", "title": "Try Krisp in the next meeting and review the generated notes.", "assignee": {"id": "demo-participant-alice", "email": "alice@example.com", "first_name": "Alice", "last_name": "Smith"}, "due_date": "2026-05-19T17:00:00.000Z", "priority": "high", "completed": false}
+      ],
+      "key_points": [
+        {"description": "Bob introduces Krisp and its important features.\nKrisp automatically transcribes and records meetings.", "id": "aaac4d0e975e4eb88e8f135c1ae1fddd"}
+      ],
+      "outline": [
+        {"id": "demo-outline-introduction", "title": "Krisp overview", "description": "Bob explains how Krisp records, transcribes, and summarizes meetings automatically."}
+      ]
+    },
+    "raw_meeting": "**Hey 👋 Let's get started with Krisp!**\n🕞 Started at 05:00 PM on 18 May, lasted 1m",
+    "raw_content": "## Action Items\n- [ ]  Try Krisp in the next meeting and review the generated notes. - Alice Smith - Due: 2026-05-19T17:00:00.000Z\n\n## Key Points\n- Bob introduces Krisp and its important features.\n\n## Outline\n**Krisp overview**\nBob explains how Krisp records, transcribes, and summarizes meetings automatically."
+  }
+}
