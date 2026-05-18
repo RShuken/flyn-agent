@@ -139,6 +139,9 @@ def graphiti_search(query: str) -> list[dict]:
     Best-effort: returns [] on any error (HTTP failure, service down,
     network issue). Callers that need to know about failures should use
     graphiti_health() first.
+
+    NOTE: this is semantic top-K — do NOT use it to enumerate episodes for
+    dedup. Use graphiti_episodes_names() instead.
     """
     try:
         qs = urllib.parse.urlencode({"q": query})
@@ -149,6 +152,19 @@ def graphiti_search(query: str) -> list[dict]:
         return []
     except json.JSONDecodeError:
         return []
+
+
+def graphiti_episodes_names(group_id: str, limit: int = 500) -> set[str]:
+    """Enumerate episode names in a group via /api/episodes?group_id=X.
+
+    Unlike graphiti_search (semantic top-K), this returns every episode in
+    the group up to `limit`. Use this when you need to check whether an
+    episode with a known name already exists (e.g. for idempotent sync).
+    """
+    qs = urllib.parse.urlencode({"group_id": group_id, "limit": str(limit)})
+    with urllib.request.urlopen(f"{GRAPHITI_BASE}/api/episodes?{qs}", timeout=15) as r:
+        data = json.loads(r.read())
+    return {e["name"] for e in data.get("episodes", []) if e.get("name")}
 
 
 # ----------------------------------------------------------------------------

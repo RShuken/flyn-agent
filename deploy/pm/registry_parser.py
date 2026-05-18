@@ -37,7 +37,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _lib import ProjectConfig, graphiti_episode, graphiti_search, load_project  # noqa: E402
+from _lib import (  # noqa: E402
+    ProjectConfig,
+    graphiti_episode,
+    graphiti_episodes_names,
+    graphiti_search,
+    load_project,
+)
 
 
 SECTION_HEADER = re.compile(r"^##\s+([A-Z])\.\s+(.+?)\s*$")
@@ -212,13 +218,18 @@ def mode_bootstrap(cfg: ProjectConfig) -> None:
             sys.stderr.write(f"  ✗ {q['id']}: {exc}\n")
 
 
+def _missing_episode_questions(
+    questions: list[dict], existing_names: set[str], slug: str
+) -> list[dict]:
+    """Return the subset of `questions` whose episode name (`{slug}-{id}`) is
+    NOT already in `existing_names`. Pure function — no I/O."""
+    return [q for q in questions if f"{slug}-{q['id']}" not in existing_names]
+
+
 def mode_diff(cfg: ProjectConfig, apply: bool = False) -> None:
     qs = parse_registry(cfg.registry_path)
-    existing = {f["name"]: f for f in graphiti_search(f"{cfg.slug} question")}
-    to_create: list[dict] = []
-    for q in qs:
-        if f"{cfg.slug}-{q['id']}" not in existing:
-            to_create.append(q)
+    existing_names = graphiti_episodes_names(cfg.slug)
+    to_create = _missing_episode_questions(qs, existing_names, cfg.slug)
     sys.stderr.write(f"{len(to_create)} new question(s) to sync\n")
     for q in to_create:
         sys.stderr.write(f"  + {q['id']}: {q['text'][:80]}...\n")
