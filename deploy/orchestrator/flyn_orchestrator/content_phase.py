@@ -73,42 +73,72 @@ def run(task: TaskRecord, services: "PhaseServices") -> None:
         )
         return
 
-    # 3. Edit (Editor — fresh-context)
-    edit_result = edit_content(
-        content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+    # 3 + 4. Edit (Editor — fresh-context) and Fact-check (conditional).
+    # Phase 4b: if either gate blocks, auto-retry the writer ONCE with the
+    # blocking findings as additional context.
+    edit_result, fc_result, failed_at, blocking = _run_edit_and_factcheck(
+        content_spec, draft, scratch=scratch, backend=backend, task_id=task.task_id,
     )
-    if not edit_result.passed:
-        blocking = [e for e in edit_result.edits if e.severity in ("critical", "important")]
-        services.safe_transition(
-            task.task_id, TaskState.RUNNING, TaskState.CHANGES_REQUESTED,
-            actor="editor",
-            reason=f"editor blocked: {len(blocking)} blocking edits",
-        )
-        services.memory.emit(
-            source="orchestrator", event_type="content_changes_requested",
-            subject=task.task_id,
-            body=f"Editor blocked with {len(blocking)} critical/important edits: {edit_result.summary}",
-            dedup_key=f"orch-{task.task_id}-edit-block", importance="warm",
-        )
-        return
 
-    # 4. Fact-check (conditional)
-    if content_spec.needs_fact_check:
-        fc_result = fact_check_content(
-            content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+    if failed_at is not None:
+        # First gate failed — retry once with findings as writer context.
+        retry_context = _build_retry_context_content(failed_at, blocking)
+        services.memory.emit(
+            source="orchestrator", event_type="content_retry_started",
+            subject=task.task_id,
+            body=f"first {failed_at} review failed; auto-retry with {len(blocking)} blocking findings",
+            dedup_key=f"orch-{task.task_id}-content-retry", importance="warm",
         )
-        if not fc_result.passed:
-            blocking = [f for f in fc_result.findings if f.severity in ("critical", "important")]
+
+        draft = draft_content(
+            content_spec, scratch_dir=scratch, backend=backend, task_id=task.task_id,
+            extra_context=retry_context,
+        )
+        if not draft.strip():
+            services.safe_transition(
+                task.task_id, TaskState.RUNNING, TaskState.FAILED,
+                actor="content-retry", reason="writer produced no draft on retry",
+            )
+            return
+
+        edit_result, fc_result, failed_at, blocking = _run_edit_and_factcheck(
+            content_spec, draft, scratch=scratch, backend=backend, task_id=task.task_id,
+        )
+
+        services.memory.emit(
+            source="orchestrator",
+            event_type="content_retry_passed" if failed_at is None else "content_retry_failed",
+            subject=task.task_id,
+            body=(
+                "retry passed"
+                if failed_at is None
+                else f"retry still blocked at {failed_at}: {len(blocking)} findings"
+            ),
+            dedup_key=f"orch-{task.task_id}-content-retry-result", importance="warm",
+        )
+
+        if failed_at is not None:
+            # Still blocked after retry — record + transition to CHANGES_REQUESTED.
+            services.store.update_task_payload(task.task_id, {
+                "content_retry_count": 1,
+                "content_blocking_at": failed_at,
+                "content_blocking_findings": [_finding_dict(f) for f in blocking],
+            })
             services.safe_transition(
                 task.task_id, TaskState.RUNNING, TaskState.CHANGES_REQUESTED,
-                actor="fact_checker",
-                reason=f"fact-checker blocked: {len(blocking)} blocking findings",
+                actor=failed_at,
+                reason=f"{failed_at} blocked twice: {len(blocking)} findings",
             )
             services.memory.emit(
                 source="orchestrator", event_type="content_changes_requested",
                 subject=task.task_id,
-                body=f"Fact-checker blocked with {len(blocking)} critical/important findings: {fc_result.summary}",
-                dedup_key=f"orch-{task.task_id}-fc-block", importance="warm",
+                body=(
+                    f"{failed_at} blocked with {len(blocking)} critical/important findings "
+                    f"after retry: "
+                    + (edit_result.summary if failed_at == "editor" and edit_result else
+                       fc_result.summary if fc_result else "(no summary)")
+                ),
+                dedup_key=f"orch-{task.task_id}-{failed_at}-block", importance="warm",
             )
             return
 
@@ -241,3 +271,79 @@ def handle_approval(
         dedup_key=f"orch-{task_id}-sent", importance="warm",
     )
     return services.store.get_task(task_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4b retry helpers
+# ---------------------------------------------------------------------------
+
+def _run_edit_and_factcheck(content_spec, draft, *, scratch: Path, backend, task_id: str):
+    """Run editor (always) + fact-checker (if spec.needs_fact_check).
+
+    Returns: (edit_result, fc_result_or_None, failed_at, blocking_list)
+      - failed_at == "editor" if editor blocked
+      - failed_at == "fact_checker" if fact-checker blocked
+      - failed_at is None if both passed (or fact-checker skipped + editor passed)
+    """
+    edit_result = edit_content(
+        content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task_id,
+    )
+    if not edit_result.passed:
+        blocking = [e for e in edit_result.edits if e.severity in ("critical", "important")]
+        return edit_result, None, "editor", blocking
+
+    fc_result = None
+    if content_spec.needs_fact_check:
+        fc_result = fact_check_content(
+            content_spec, draft, scratch_dir=scratch, backend=backend, task_id=task_id,
+        )
+        if not fc_result.passed:
+            blocking = [f for f in fc_result.findings if f.severity in ("critical", "important")]
+            return edit_result, fc_result, "fact_checker", blocking
+
+    return edit_result, fc_result, None, []
+
+
+def _build_retry_context_content(failed_at: str, blocking) -> str:
+    """Format blocking findings as additional context for the retry writer prompt.
+
+    `failed_at` is "editor" or "fact_checker". The retry context names the
+    review stage so the writer knows what voice/tone or factual-grounding
+    issue to address.
+    """
+    if not blocking:
+        return ""
+    header = (
+        "## Editor findings from previous draft"
+        if failed_at == "editor"
+        else "## Fact-checker findings from previous draft"
+    )
+    lines = [header, ""]
+    for item in blocking:
+        sev = getattr(item, "severity", "important")
+        if failed_at == "editor":
+            # EditFinding: severity / type / where / suggestion
+            type_ = getattr(item, "type", "other")
+            where = getattr(item, "where", "")
+            suggestion = getattr(item, "suggestion", "")
+            line = f"- **{sev} / {type_}**" + (f" (at `{where}`)" if where else "") + f": {suggestion}"
+        else:
+            # FactCheckFinding: severity / category (or claim) / note
+            cat = getattr(item, "category", getattr(item, "claim", "")) or ""
+            note = getattr(item, "note", "")
+            line = f"- **{sev}**" + (f" / {cat}" if cat else "") + f": {note}"
+        lines.append(line)
+    lines.append("")
+    lines.append("Please address these in your revised draft.")
+    return "\n".join(lines)
+
+
+def _finding_dict(item) -> dict:
+    """Serialize an EditFinding or FactCheckFinding to a payload dict."""
+    return {
+        "severity": getattr(item, "severity", ""),
+        "type": getattr(item, "type", None) or getattr(item, "category", None) or "",
+        "where": getattr(item, "where", "") or "",
+        "suggestion": getattr(item, "suggestion", "") or "",
+        "note": getattr(item, "note", "") or "",
+    }
