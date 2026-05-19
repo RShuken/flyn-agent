@@ -10,6 +10,189 @@ Pending work — see `RESUME-HERE.md` "Phase 6/7 remaining buildable-without-blo
 
 ---
 
+## [PR #29] 2026-05-18 — Daily heartbeat sweep for expired ops approvals
+
+### Added
+- `StateStore.list_tasks_by_state(state)` — new query method returning all `TaskRecord`s in a given state; used by the sweep, useful for future health-check endpoints.
+- `ops_phase.sweep_expired_approvals(store, memory_emitter=None, *, now=None)` — pure helper (no PhaseServices coupling) that walks `AWAITING_OWNER_APPROVAL` tasks, checks per-tier expiry, writes `approval_expired` audit rows with `actor="sweep"`, and emits `ops_approval_expired` memory events.
+- Daily heartbeat integration: `flyn_orchestrator_daily.sh` now calls `sweep_expired_approvals` so stale approvals are proactively rejected, not only at approval-arrival time.
+
+### Notes
+- Closes the "no active expiration job" threat raised in PR #28 §Δ.5b-approval-expiry.
+- Low-risk tasks (auto-execute, no approval window) are unaffected.
+
+---
+
+## [PR #28] 2026-05-18 — Phase 5b: time-windowed ops approvals
+
+### Added
+- Per-tier approval expiry windows enforced at approval-arrival time: medium 2 h, high 1 h, critical 30 min (low: n/a, auto-executes).
+- `ops_phase.run` records `approval_issued_at` (ISO-8601 UTC) on every transition to `AWAITING_OWNER_APPROVAL`; `approval_context` dict gains `issued_at` + `expires_after_seconds` for future UI rendering.
+- Expired APPROVE attempts → `REJECTED` with `approval_expired` audit row; REJECT attempts always pass through (rejecting a stale request is always safe).
+
+### Notes
+- Stale critical approvals can no longer auto-execute hours later when operational context may have changed.
+
+---
+
+## [PR #27] 2026-05-18 — Registries auto-wire memory_emitter into adapters
+
+### Added
+- `PMRegistry`, `ChannelRegistry`, and `NotifyRegistry` gain optional `memory_emitter` constructor kwarg + `attach_memory_emitter()` retro-wire method.
+- Adapters with a `_memory_emitter` slot are auto-wired on `register()`; explicit per-instance configuration always wins.
+- Three usage modes: construction-time wiring, retro-wiring after bootstrap, per-instance override.
+
+### Notes
+- Closes the §Δ.adapter-observability threat "wiring is per-adapter-instance, not central".
+
+---
+
+## [PR #26] 2026-05-18 — MemoryEmitter into adapters: swallowed-error observability
+
+### Added
+- `flyn_orchestrator/adapters/_observability.py` — shared `emit_swallowed_error(memory_emitter, adapter_name, method, exc, *, task_id=None)` helper; no-op when `memory_emitter is None`; wraps `emit()` itself in try/except so a broken MemoryEmitter cannot break the adapter.
+- The 4 I/O-performing adapters (OLWiki, Webhook, Telegram, Email) accept optional `memory_emitter` constructor kwarg; every swallowed HTTP/SMTP/IMAP error now fires an `adapter_swallowed_error` memory event.
+
+### Notes
+- Adapter never-raise contract preserved. Existing tests and callers see zero behavior change.
+- Closes the KNOWLEDGE/20 observability gap.
+
+---
+
+## [PR #25] 2026-05-18 — Rubric: flip Phase 5.9 to ✅ (ship-gate Procedure C verified)
+
+### Changed
+- Phase 5 criterion 5.9 → ✅: Procedure C executed end-to-end on running `:8300` (2026-05-18).
+- Phase 5 score: 8/9 + 1 🟡 → **9/9 ✅**.
+
+### Notes
+- Pure docs — no code changes.
+
+---
+
+## [PR #24] 2026-05-18 — Fix: map PermissionError→403 and ValueError→400 in /approve route
+
+### Fixed
+- `/approve` route only caught `NotImplementedError`; `PermissionError` and `ValueError` from `ops_phase` leaked through to uvicorn as HTTP 500. Now maps correctly to **403** (unauthorized approver) and **400** (empty rationale / bad input).
+
+### Added
+- 2 new integration tests; total test count: 394.
+
+### Notes
+- Follow-up to PR #23; together they make Phase 5 critical-tier gating fully correct.
+
+---
+
+## [PR #23] 2026-05-18 — Fix: owner-role from `FLYN_OWNER_IDENTIFIERS` env, not gate parameter (P5 security)
+
+### Fixed
+- **Security bug (P5):** `ops_phase.handle_approval` was deriving the approver's role from the caller-supplied `gate` parameter, allowing any teammate to approve a critical-tier ops task by sending `gate="critical"`. Role inference now uses `Config.owner_identifiers` (populated from `FLYN_OWNER_IDENTIFIERS` env, comma-separated emails).
+- Falls back to empty frozenset when config is None → safe default: no one is owner.
+- plist updated: `FLYN_OWNER_IDENTIFIERS=ryanshuken@gmail.com`.
+
+### Notes
+- Bug surfaced during Phase 5 ship-gate Procedure C (live run on `:8300`).
+
+---
+
+## [PR #22] 2026-05-18 — CONTACTS.md-driven email allowlist
+
+### Added
+- `flyn_orchestrator/adapters/channels/email_allowlist.py` — parses `## Email allowlist` section from `workspace/CONTACTS.md`; tolerates HTML comments, TBD placeholders, `-` and `*` bullets; case-insensitive.
+- `workspace/CONTACTS.md` — new section listing `ryanshuken@gmail.com`, `beth@cora.community`, `eric@cora.community`; 3-step update runbook (edit → restart launchd → sanity-curl).
+- `EmailChannelAdapter` uses CONTACTS.md as canonical allowlist source; `DEFAULT_ALLOWLIST` in `email.py` is now a fallback only.
+
+### Notes
+- Closes §Δ.6-partial threat "allowlist hardcoded vs CONTACTS.md".
+
+---
+
+## [PR #21] 2026-05-18 — ChannelAdapter conformance suite
+
+### Added
+- `tests/unit/test_channel_adapter_conformance.py` — 18 parametrized contract tests covering Protocol isinstance, name, `ingest(valid)` / `ingest(malformed)` / `ingest({})` return types, `send()` best-effort, and `approve_button()` best-effort for both `TelegramChannelAdapter` and `EmailChannelAdapter`.
+
+### Notes
+- Mirrors the PMAdapter conformance suite from PR #11.
+- Both adapters already conformed; this adds defensive regression coverage. No rubric score change.
+
+---
+
+## [PR #20] 2026-05-18 — Phase 4b: content auto-rerun on editor/fact-check block
+
+### Added
+- `draft_content` gains `extra_context: Optional[str] = None` — appended to writer prompt with `---` separator on retry (same pattern as Phase 3b).
+- `content_phase.run` on review-cycle failure: helper `_run_edit_and_factcheck` returns `(edit_result, fc_result, failed_at, blocking)`; if `failed_at` is not None, emits `content_retry_started` event, builds stage-typed retry context, and re-runs `draft_content` once with the gate's findings as additional context.
+
+### Notes
+- Symmetric counterpart to PR #19 (Phase 3b). Content workflow's editor-block and fact-checker-block paths are no longer dead-ends.
+
+---
+
+## [PR #19] 2026-05-18 — Phase 3b: research auto-rerun on critic block
+
+### Added
+- `run_researchers` gains `extra_context: Optional[str] = None` — when provided, appended (separated by `---`) to each researcher's prompt.
+- `research_phase.run` on critic failure: builds a "Critic findings from previous research run" markdown block from blocking (critical/important) findings, emits `research_retry_started` memory event, cycles back through `REVIEWED → DISPATCHED → RUNNING` with `actor="research-retry"`, and re-runs `run_researchers` with the critic context.
+
+### Notes
+- Research workflow's critic-block path is no longer a dead-end — it auto-retries once. Closes a long-deferred Phase 3 backlog item.
+
+---
+
+## [PR #18] 2026-05-18 — Docs: cookbooks for extending the orchestrator
+
+### Added
+- `docs/cookbooks/README.md` — index + conventions + when to add a new cookbook.
+- `docs/cookbooks/add-a-workflow.md` — 7-step build: policy YAML → role prompts → helper module → phase runner → router branch → tests → ship checklist.
+- `docs/cookbooks/add-a-pm-adapter.md` — the 4-method Protocol contract, 3 invariants (best-effort, never-raise, state-mirroring-optional), step-by-step build with conformance-suite hookup.
+- `docs/cookbooks/add-a-channel-adapter.md` — ingest/send/approve_button contract, when to add auth verification vs trust-the-channel, prompt-injection considerations.
+
+### Notes
+- Pure markdown, zero code impact. Locks in patterns from Phase 2c (workflows), Phase 7 (PMAdapter), Phase 6 (ChannelAdapter).
+
+---
+
+## [PR #17] 2026-05-18 — Watchdog default-on in TaskRouter
+
+### Changed
+- `TaskRouter.__init__` gains `watchdog_factory` (default `"default"` sentinel → installs built-in factory; `None` to disable; callable for custom wiring) and `triage_backend` (default `OllamaTriageBackend()` → gemma4:e4b; pluggable for tests) kwargs.
+- New `_build_default_watchdog(capture_path, task_id, task_intent)` wires `on_nudge` → `worker_needs_nudge` memory event, `on_stuck` → `worker_stuck` memory event, `on_done` → `worker_done`.
+
+### Notes
+- Follow-up to PR #16. Watchdog was opt-in at `dispatch()` call site; now production dispatches get stuck-worker triage automatically.
+
+---
+
+## [PR #16] 2026-05-18 — Phase 1.8 Watchdog: stuck-worker triage
+
+### Added
+- `flyn_orchestrator/watchdog.py` — `Watchdog` polling daemon thread that tails worker capture files every 30 s, classifies via pluggable `TriageBackend` Protocol (`OllamaTriageBackend` using gemma4:e4b, `StubTriageBackend` for tests), emits FINE / NEEDS_NUDGE / STUCK / DONE / ESCALATE verdicts.
+- Consecutive-STUCK threshold (default 2) provides hysteresis; ESCALATE bypasses threshold immediately.
+- `WorkerDispatcher.dispatch()` gains opt-in `watchdog: Optional[Watchdog] = None` kwarg; bracketed start/stop in try/finally; existing callers unaffected.
+- 15 unit tests + 3 integration tests; total: 343.
+
+### Changed
+- Rubric Phase 1: 13/14 → **14/14 (100%)**. Overall: 81/87 → **82/87 (94%)**.
+
+---
+
+## [PR #15] 2026-05-18 — Memory router: unified read surface (query/lint/sources/CLI)
+
+### Added
+- 10 async read adapters (hot, warm×2, cool, cold, lesson, reference, user, ol_wiki, ocw_mem, lossless) behind a common `ReadAdapter` Protocol (asymmetric from the write-side `MemoryAdapter`).
+- REST endpoints: `POST /api/memory/query` (RRF rank fusion + dedup), `POST /api/memory/lint` (drift detection), `GET /api/memory/sources` (health per adapter).
+- `flyn-mem` CLI: `query`, `health`, `sources`, `logs` subcommands with `--query-id` cross-file log correlation.
+- `HealthTracker` with rolling 100-sample window per source (RLock-safe); daily JSONL rotation, 90-day/1 GB retention.
+- Install script writes `/usr/local/bin/flyn-mem` symlink, auto-memory pointer, `TOOLS.md` section (all idempotent).
+- **146 unit + integration tests** (34 commits; 80 pre-existing write-side tests preserved).
+
+### Notes
+- Extends existing Phase 0 memory router — same launchd unit, same `:8400` port. No sibling service.
+- Raw chunks + citations come from the caller; no LLM in the router.
+
+---
+
 ## [PR #14] 2026-05-16 — Audit baseline: per-phase deltas (closes X.2)
 
 ### Added
