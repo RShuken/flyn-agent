@@ -43,7 +43,7 @@ def test_inbound_event_rejects_unknown_importance():
 
 
 def test_tier_enum_values():
-    assert {t.value for t in Tier} == {"hot", "warm", "cool", "cold", "lesson"}
+    assert {t.value for t in Tier} == {"hot", "warm", "cool", "cold", "lesson", "conv"}
 
 
 def test_hit_minimal():
