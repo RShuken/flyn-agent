@@ -654,15 +654,3 @@ Intentionally not decided in slice 1.
 - Cormack/Clarke/Buettcher 2009 — RRF (reused from memory-router read-side)
 
 ---
-
-## Spec self-review notes (this section will be deleted after user approval)
-
-**Placeholder scan:** searched for TBD / TODO / XXX / FIXME / ??? / VERIFY — clean. Section 10 explicitly labels deferred decisions as deferred, not as placeholders. Section 8 has one VERIFY note about the OpenClaw hook API surface; that's an intentional pre-implementation check, not a placeholder.
-
-**Internal consistency:** Section 2 (architecture) → Section 3 (components) → Section 4 (data flow) chain. Section 5 (observability) matches Section 6 (testing). Section 7 (discovery) matches the install steps in Section 8. The 11 user decisions from the brainstorm are all reflected: extend memory-router (§2), Telegram-first (§1 non-goals), per-owner SQLite (§3 schema), raw+parsed+summary (§3 ConvMessage), async summarizer (§3 SummarizerWorker), Graphiti per-message (§3 conv_write step 5), encrypted-raw vault (§3 encrypted_raw.py), conv_read 11th adapter (§3), OpenClaw hook (§8), dedicated conv/ module (§3), ≤20 tests (§6).
-
-**Scope check:** This is one cohesive spec for one slice of one feature, integrating into one existing service. Folds cleanly into a single implementation plan. Slice 2 (WA/iMessage/email) is a separate future spec, not part of this scope.
-
-**Ambiguity check:** Three intentional ambiguities, all flagged: OpenClaw hook surface (§8 — verify before implementation), summarizer worker poll cadence specifics (§3 says 1s / 10s; could be tuned), and adapter name (`conv` vs `conv.telegram` — chose `conv` for the read side since the channel lives in metadata, `conv.telegram` for the write target identifier).
-
-**Boundary check:** Spec specifies the contracts between modules, not the internals of e.g. FTS5 query construction or exact Ollama prompt phrasing. Those land during TDD-driven implementation.
