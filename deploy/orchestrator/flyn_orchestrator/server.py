@@ -52,7 +52,7 @@ def build_app(
 
     store = StateStore(db_path=cfg.db_path)
     wt_mgr = WorktreeManager(workspaces_dir=cfg.workspaces_dir)
-    dispatcher = dispatcher or WorkerDispatcher()  # default registry: claude-p pre-registered
+    dispatcher = dispatcher or WorkerDispatcher()  # default registry: noop, claude-p, codex-exec
     memory = MemoryEmitter(
         router_url=cfg.router_url,
         http=http_client or httpx.Client(timeout=httpx.Timeout(30.0)),

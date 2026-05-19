@@ -90,7 +90,8 @@ def run(task: TaskRecord, services: "PhaseServices") -> None:
     After execution (either auto or resumed from approval):
       validate → DELIVERABLE_READY or AWAITING_OWNER_APPROVAL (validator concerns)
     """
-    backend = services.backend_registry.get("claude-p")
+    _default_backend = (services.config.default_backend if services.config else "noop")
+    backend = services.backend_registry.get(_default_backend)
     scratch = services.scratch_root / task.task_id
     scratch.mkdir(parents=True, exist_ok=True)
 
@@ -496,7 +497,8 @@ def _handle_approval_impl(
         actor=approver, reason=f"approved by {approver}; tier={tier}",
     )
 
-    backend = services.backend_registry.get("claude-p")
+    _default_backend = (services.config.default_backend if services.config else "noop")
+    backend = services.backend_registry.get(_default_backend)
     scratch = services.scratch_root / task.task_id
     scratch.mkdir(parents=True, exist_ok=True)
 

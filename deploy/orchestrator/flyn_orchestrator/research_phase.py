@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 def run(task: TaskRecord, services: "PhaseServices") -> None:
     """Walk the research workflow's state machine. Idempotent transitions."""
-    backend = services.backend_registry.get("claude-p")
+    _default_backend = (services.config.default_backend if services.config else "noop")
+    backend = services.backend_registry.get(_default_backend)
     scratch = services.scratch_root / task.task_id
     scratch.mkdir(parents=True, exist_ok=True)
 

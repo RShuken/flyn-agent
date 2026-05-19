@@ -18,7 +18,7 @@
       <key>FLYN_WORKSPACE</key>             <string>{{HOME}}/.openclaw/workspace</string>
       <key>FLYN_MEMORY_ROUTER_URL</key>     <string>http://localhost:8400</string>
       <key>FLYN_ORCHESTRATOR_PORT</key>     <string>8300</string>
-      <key>FLYN_DEFAULT_BACKEND</key>       <string>claude-p</string>
+      <key>FLYN_DEFAULT_BACKEND</key>       <string>noop</string>
       <key>FLYN_OWNER_IDENTIFIERS</key>     <string>ryanshuken@gmail.com</string>
       <key>FLYN_DEFAULT_TEST_REPO</key>     <string>{{HOME}}/.flyn/orchestrator/test-repo</string>
       <key>PATH</key>                       <string>{{HOME}}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>

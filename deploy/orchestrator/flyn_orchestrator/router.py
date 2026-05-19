@@ -226,11 +226,12 @@ class TaskRouter:
             current_state = TaskState.RUNNING
 
             # 7. Build WorkerSpec and render prompt
+            _default_backend = (self._config.default_backend if self._config else "noop")
             spec = WorkerSpec(
                 task_id=task_id,
                 worker_id=f"{task_id}-builder",
                 role=WorkerRole.BUILDER,
-                backend="claude-p",
+                backend=_default_backend,
                 prompt_template="builder",
                 worktree_path=str(worktree_path),
                 max_turns=10,
@@ -278,7 +279,7 @@ class TaskRouter:
                 diff=diff,
                 test_results="(no tests run)",
                 worktree_path=str(worktree_path),
-                backend_name="claude-p",
+                backend_name=_default_backend,
             )
 
             # 12. Emit review_complete
