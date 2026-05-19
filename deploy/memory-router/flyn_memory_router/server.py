@@ -214,6 +214,7 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     @app.get("/api/memory/sources")
     def sources_route() -> list[dict[str, Any]]:
+        from .config import CONV_READ_SOURCE
         out = []
         for name, rsc in READ_SOURCES.items():
             snap = TRACKER.snapshot(name)
@@ -224,6 +225,14 @@ def build_app(http_client: Any | None = None) -> FastAPI:
                 "timeout_s": rsc.timeout,
                 **snap,
             })
+        conv_snap = TRACKER.snapshot(CONV_READ_SOURCE.name)
+        out.append({
+            "name": CONV_READ_SOURCE.name,
+            "kind": "read",
+            "default_included": CONV_READ_SOURCE.default_included,
+            "timeout_s": CONV_READ_SOURCE.timeout,
+            **conv_snap,
+        })
         return out
 
     return app
