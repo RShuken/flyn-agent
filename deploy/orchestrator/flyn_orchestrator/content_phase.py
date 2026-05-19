@@ -34,7 +34,8 @@ def _slugify_for_content(text: str) -> str:
 
 def run(task: TaskRecord, services: "PhaseServices") -> None:
     """Walk the content workflow's state machine."""
-    backend = services.backend_registry.get("claude-p")
+    _default_backend = (services.config.default_backend if services.config else "noop")
+    backend = services.backend_registry.get(_default_backend)
     scratch = services.scratch_root / task.task_id
     scratch.mkdir(parents=True, exist_ok=True)
 

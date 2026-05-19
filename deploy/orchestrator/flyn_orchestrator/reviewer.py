@@ -7,6 +7,7 @@ from typing import Optional
 
 from .backends import default_registry
 from .backends.base import WorkerBackend
+from .config import Config
 from .types import ReviewFindings, ReviewFinding, WorkerSpec, WorkerRole
 
 
@@ -41,7 +42,7 @@ def _extract_json(text: str) -> Optional[dict]:
 
 
 def review(*, worker_id: str, requirements: str, diff: str, test_results: str,
-           worktree_path: str, backend_name: str = "claude-p",
+           worktree_path: str, backend_name: Optional[str] = None,
            backend: Optional[WorkerBackend] = None) -> ReviewFindings:
     # Short-circuit on empty diff: builder produced no output
     if not diff.strip():
@@ -53,6 +54,8 @@ def review(*, worker_id: str, requirements: str, diff: str, test_results: str,
                 severity="critical", area="correctness",
                 note="builder produced no diff — review skipped")])
 
+    if backend_name is None:
+        backend_name = Config.from_env().default_backend
     backend = backend or default_registry().get(backend_name)
     spec = WorkerSpec(
         task_id=worker_id, worker_id=worker_id + "-reviewer",

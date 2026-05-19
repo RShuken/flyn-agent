@@ -13,6 +13,7 @@ from typing import Optional
 
 from .backends import default_registry
 from .backends.base import WorkerBackend
+from .config import Config
 from .types import WorkerSpec, WorkerRole
 
 
@@ -46,7 +47,9 @@ def _extract_text_from_capture(capture_text: str) -> Optional[str]:
 
 def generate_walkthrough(*, pr_url: str, diff: str, task_intent: str,
                          backend: Optional[WorkerBackend] = None,
-                         backend_name: str = "claude-p") -> str:
+                         backend_name: Optional[str] = None) -> str:
+    if backend_name is None:
+        backend_name = Config.from_env().default_backend
     backend = backend or default_registry().get(backend_name)
     prompt = _render_prompt(pr_url=pr_url, diff=diff, task_intent=task_intent)
     # Use a scratch tempdir for the worker invocation — no worktree required for read-only walkthrough

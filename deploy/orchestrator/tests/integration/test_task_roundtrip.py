@@ -85,6 +85,7 @@ def test_happy_path_task_roundtrip(tmp_path: Path, test_repo: Path):
     # ------------------------------------------------------------------
     dispatcher = WorkerDispatcher()
     dispatcher.register_backend("claude-p", stub_backend)
+    dispatcher.register_backend("noop", stub_backend)  # safe default backend alias
 
     http = MagicMock()
     http.post.return_value.status_code = 200
@@ -187,6 +188,7 @@ def test_router_picks_dev_workflow_for_build_intent(tmp_path: Path, test_repo: P
 
     dispatcher = WorkerDispatcher()
     dispatcher.register_backend("claude-p", stub_backend)
+    dispatcher.register_backend("noop", stub_backend)  # safe default backend alias
 
     http = MagicMock()
     http.post.return_value.status_code = 200

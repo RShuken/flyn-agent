@@ -37,7 +37,7 @@ class Config:
             workspace=workspace,
             port=int(os.environ.get("FLYN_ORCHESTRATOR_PORT", "8300")),
             router_url=os.environ.get("FLYN_MEMORY_ROUTER_URL", "http://localhost:8400"),
-            default_backend=os.environ.get("FLYN_DEFAULT_BACKEND", "claude-p"),
+            default_backend=os.environ.get("FLYN_DEFAULT_BACKEND", "noop"),
             concurrent_tasks_max=int(os.environ.get("FLYN_CONCURRENT_TASKS_MAX", "4")),
             concurrent_workers_max=int(os.environ.get("FLYN_CONCURRENT_WORKERS_MAX", "6")),
             owner_identifiers=owner_ids,

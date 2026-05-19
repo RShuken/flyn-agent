@@ -233,3 +233,57 @@ def test_claude_p_under_budget_completes_normally(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert not fake_proc._terminated
     assert result.cost_usd > 0
+
+
+# ---------------------------------------------------------------------------
+# NoopBackend tests
+# ---------------------------------------------------------------------------
+
+def test_noop_backend_returns_success_immediately(tmp_path):
+    """NoopBackend must return exit_code=0, cost=0, and write a one-line JSONL."""
+    import json as _json
+    from flyn_orchestrator.backends.noop import NoopBackend
+    spec = WorkerSpec(
+        task_id="T-noop-1", worker_id="w-noop-001", role=WorkerRole.BUILDER,
+        backend="noop", prompt_template="builder",
+        worktree_path=str(tmp_path), max_turns=5, budget_usd=1.0,
+    )
+    b = NoopBackend()
+    result = b.run(spec, "do something useful")
+    assert result.exit_code == 0
+    assert result.cost_usd == 0.0
+    assert "noop" in result.summary
+    assert result.capture_path.exists()
+    lines = result.capture_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    data = _json.loads(lines[0])
+    assert data["backend"] == "noop"
+    assert "no LLM call performed" in data["note"]
+    assert "do something useful" in data["intent"]
+
+
+def test_default_backend_is_noop_when_env_unset(monkeypatch, tmp_path):
+    """Config.from_env() must default to 'noop' when FLYN_DEFAULT_BACKEND is absent."""
+    monkeypatch.setenv("FLYN_ORCHESTRATOR_HOME", str(tmp_path))
+    monkeypatch.delenv("FLYN_DEFAULT_BACKEND", raising=False)
+    from flyn_orchestrator.config import Config
+    cfg = Config.from_env()
+    assert cfg.default_backend == "noop"
+
+
+def test_default_backend_respects_env(monkeypatch, tmp_path):
+    """Config.from_env() must honour FLYN_DEFAULT_BACKEND=codex-exec."""
+    monkeypatch.setenv("FLYN_ORCHESTRATOR_HOME", str(tmp_path))
+    monkeypatch.setenv("FLYN_DEFAULT_BACKEND", "codex-exec")
+    from flyn_orchestrator.config import Config
+    cfg = Config.from_env()
+    assert cfg.default_backend == "codex-exec"
+
+
+def test_registry_has_all_three_backends():
+    """The default registry must expose noop, claude-p, and codex-exec."""
+    from flyn_orchestrator.backends import get_backend
+    from flyn_orchestrator.backends.base import WorkerBackend
+    for name in ("noop", "claude-p", "codex-exec"):
+        b = get_backend(name)
+        assert isinstance(b, WorkerBackend), f"{name!r} is not a WorkerBackend"

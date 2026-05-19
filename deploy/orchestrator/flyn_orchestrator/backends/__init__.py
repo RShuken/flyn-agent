@@ -3,6 +3,7 @@ from __future__ import annotations
 from .base import WorkerBackend, WorkerResult
 from .claude_p import ClaudePBackend
 from .codex_exec import CodexExecBackend
+from .noop import NoopBackend
 
 
 class BackendRegistry:
@@ -19,6 +20,7 @@ class BackendRegistry:
 
 
 _DEFAULT_REGISTRY = BackendRegistry()
+_DEFAULT_REGISTRY.register("noop", NoopBackend())
 _DEFAULT_REGISTRY.register("claude-p", ClaudePBackend())
 _DEFAULT_REGISTRY.register("codex-exec", CodexExecBackend())
 
@@ -37,6 +39,7 @@ __all__ = [
     "WorkerResult",
     "default_registry",
     "get_backend",
+    "NoopBackend",
     "ClaudePBackend",
     "CodexExecBackend",
 ]

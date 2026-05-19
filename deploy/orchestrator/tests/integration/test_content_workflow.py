@@ -67,6 +67,9 @@ def content_router(tmp_path, monkeypatch):
     backend = MagicMock(); backend.name = "claude-p"; backend.run = _run
     dispatcher = WorkerDispatcher()
     dispatcher.register_backend("claude-p", backend)
+    # Register the same stub as "noop" so it's invoked when the router uses
+    # the default backend (FLYN_DEFAULT_BACKEND=noop / config=None fallback).
+    dispatcher.register_backend("noop", backend)
 
     http = MagicMock(); http.post.return_value.status_code = 200
     memory = MemoryEmitter(router_url="http://localhost:8400", http=http)

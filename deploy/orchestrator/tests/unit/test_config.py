@@ -23,4 +23,4 @@ def test_port_override(monkeypatch, tmp_path: Path):
 def test_default_backend(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("FLYN_ORCHESTRATOR_HOME", str(tmp_path))
     monkeypatch.delenv("FLYN_DEFAULT_BACKEND", raising=False)
-    assert Config.from_env().default_backend == "claude-p"
+    assert Config.from_env().default_backend == "noop"

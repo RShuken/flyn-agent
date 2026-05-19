@@ -79,7 +79,10 @@ class WorkerSpec(BaseModel):
     task_id: str
     worker_id: str
     role: WorkerRole
-    backend: str = Field(default="claude-p", description="WorkerBackend name in backends registry")
+    # NOTE: field default is NOT a routing decision — callers must always set this
+    # explicitly. "noop" is chosen so that specs constructed without an explicit backend
+    # fail safely rather than consuming OAuth tokens.
+    backend: str = Field(default="noop", description="WorkerBackend name in backends registry")
     prompt_template: str
     worktree_path: str
     max_turns: int = 10
