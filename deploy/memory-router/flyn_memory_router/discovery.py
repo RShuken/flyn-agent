@@ -68,3 +68,53 @@ def append_tools_md(workspace_dir: Path) -> None:
             f.write(TOOLS_MD_SECTION)
     else:
         tools.write_text("# TOOLS\n" + TOOLS_MD_SECTION)
+
+
+# ---------------------------------------------------------------------------
+# Conversation memory pointer (Telegram slice 1)
+# ---------------------------------------------------------------------------
+
+CONV_AUTO_MEMORY_FILE = "feedback_conv_memory.md"
+
+CONV_AUTO_MEMORY_BODY = """---
+name: conversation-memory
+description: Flyn captures every Telegram message into a per-owner SQLite DB at ~/.flyn/memory-router/conv/. Searchable via flyn-mem conv. Encrypted raw payload via Keychain.
+metadata:
+  type: reference
+---
+For "what did Beth say last week" / "when did we discuss X" / "what was the decision on Y" questions,
+prefer `flyn-mem conv search "<text>"` (FTS5 over body + summary) over generic grep.
+
+For the exact original message text (un-redacted, decrypted from Keychain):
+  flyn-mem conv replay <row_id> --owner ryan   # audit-logged
+
+Per-owner DBs:
+  ~/.flyn/memory-router/conv/ryan.db           # your messages
+  ~/.flyn/memory-router/conv/owners.db         # shared: owners, grants, audit
+
+Other useful commands:
+  flyn-mem conv health                          # per-owner stats + summary backlog
+  flyn-mem conv thread <thread_id>              # dump a single thread
+  flyn-mem query "<q>" --include conv           # conv-only query
+"""
+
+CONV_MEMORY_MD_INDEX_LINE = "- [conversation memory](feedback_conv_memory.md) — flyn-mem conv search; per-owner SQLite under ~/.flyn/memory-router/conv/\n"
+
+
+def write_conv_auto_memory_pointer(memory_dir: Path) -> None:
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    target = memory_dir / CONV_AUTO_MEMORY_FILE
+    if not target.exists():
+        target.write_text(CONV_AUTO_MEMORY_BODY)
+
+
+def append_conv_memory_md_index(memory_dir: Path) -> None:
+    idx = memory_dir / "MEMORY.md"
+    if not idx.exists():
+        idx.write_text(CONV_MEMORY_MD_INDEX_LINE)
+        return
+    text = idx.read_text()
+    if CONV_AUTO_MEMORY_FILE in text:
+        return
+    with idx.open("a") as f:
+        f.write(CONV_MEMORY_MD_INDEX_LINE)

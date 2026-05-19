@@ -45,7 +45,8 @@ fi
 from pathlib import Path
 import os
 from flyn_memory_router.discovery import (
-    write_auto_memory_pointer, append_memory_md_index, append_tools_md
+    write_auto_memory_pointer, append_memory_md_index, append_tools_md,
+    write_conv_auto_memory_pointer, append_conv_memory_md_index,
 )
 
 automem = Path(os.environ.get("FLYN_AUTO_MEMORY_DIR",
@@ -59,6 +60,11 @@ append_memory_md_index(automem)
 append_tools_md(workspace)
 print(f"  ✓ auto-memory pointer at {automem}/feedback_memory_router.md")
 print(f"  ✓ TOOLS.md updated at   {workspace}/TOOLS.md")
+
+# Conversation memory pointer (slice 1)
+write_conv_auto_memory_pointer(automem)
+append_conv_memory_md_index(automem)
+print(f"  ✓ conv auto-memory pointer at {automem}/feedback_conv_memory.md")
 PYEOF
 
 # render plist
