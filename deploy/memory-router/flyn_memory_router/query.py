@@ -160,7 +160,22 @@ def _load_adapters(include: list[str] | None, exclude: list[str] | None):
             continue
         selected.append(rsc)
 
-    return [_construct(rsc, cfg) for rsc in selected]
+    adapters = [_construct(rsc, cfg) for rsc in selected]
+
+    # Append the 11th read adapter: conv tier
+    from .adapters.conv_read import ConvReadAdapter
+    from .conv.owner import OwnerRegistry
+    cfg.conv_root.mkdir(parents=True, exist_ok=True)
+    conv_owner_registry = OwnerRegistry(
+        owners_db_path=cfg.conv_owners_db_path,
+        principals_json=cfg.principals_json_path,
+    )
+    adapters.append(ConvReadAdapter(
+        registry=conv_owner_registry,
+        conv_root=cfg.conv_root,
+    ))
+
+    return adapters
 
 
 async def query(q: str,
