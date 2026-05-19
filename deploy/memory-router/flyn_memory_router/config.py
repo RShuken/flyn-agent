@@ -47,6 +47,21 @@ class Config:
     def captures_index(self) -> Path:
         return self.home / "captures_index.jsonl"
 
+    @property
+    def conv_root(self) -> Path:
+        env = os.environ.get("FLYN_CONV_ROOT")
+        if env:
+            return Path(env)
+        return self.home / "conv"
+
+    @property
+    def principals_json_path(self) -> Path:
+        return self.conv_root / "principals.json"
+
+    @property
+    def conv_owners_db_path(self) -> Path:
+        return self.conv_root / "owners.db"
+
     @classmethod
     def from_env(cls) -> "Config":
         home_env = Path.home() / ".flyn" / "memory-router"

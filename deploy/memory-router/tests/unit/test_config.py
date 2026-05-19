@@ -61,3 +61,22 @@ def test_config_has_log_dir_path(monkeypatch, tmp_path: Path):
     cfg = Config.from_env()
     assert cfg.log_dir.name == "logs"
     assert cfg.log_dir == tmp_path / "logs"
+
+
+def test_config_has_conv_root_default(monkeypatch, tmp_path):
+    from flyn_memory_router.config import Config
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path))
+    cfg = Config.from_env()
+    assert cfg.conv_root == tmp_path / "conv"
+    assert cfg.principals_json_path == tmp_path / "conv" / "principals.json"
+    assert cfg.conv_owners_db_path == tmp_path / "conv" / "owners.db"
+
+
+def test_config_conv_root_env_override(monkeypatch, tmp_path):
+    from flyn_memory_router.config import Config
+    custom = tmp_path / "custom-conv"
+    monkeypatch.setenv("FLYN_MEMORY_ROUTER_HOME", str(tmp_path))
+    monkeypatch.setenv("FLYN_CONV_ROOT", str(custom))
+    cfg = Config.from_env()
+    assert cfg.conv_root == custom
+    assert cfg.principals_json_path == custom / "principals.json"
