@@ -69,6 +69,39 @@ sed "s|{{HOME}}|$HOME|g" "$HERE/ai.flyn.memory-router.plist.template" > "$PLIST"
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
 
+# --- Conversation tier (Telegram slice 1) ---
+CONV_ROOT="${FLYN_CONV_ROOT:-$HOME/.flyn/memory-router/conv}"
+mkdir -p "$CONV_ROOT"
+echo "  ✓ conv root at $CONV_ROOT"
+
+# Seed principals.json with the current user as Ryan if missing
+if [ ! -f "$CONV_ROOT/principals.json" ]; then
+  cat > "$CONV_ROOT/principals.json" <<JSON
+{
+  "owners": [
+    {
+      "id": "ryan",
+      "display_name": "Ryan Shuken",
+      "principals": {
+        "telegram": "7191564227"
+      }
+    }
+  ]
+}
+JSON
+  echo "  ✓ seeded conv principals.json (edit to add Beth/Eric/etc later)"
+fi
+
+# Install the OpenClaw hook script
+HOOK_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hooks/flyn-conv-memory-tap.sh"
+if [ -f "$HOOK_SRC" ]; then
+  HOOK_DST="$HOME/.openclaw/hooks/flyn-conv-memory-tap.sh"
+  mkdir -p "$(dirname "$HOOK_DST")"
+  install -m 755 "$HOOK_SRC" "$HOOK_DST"
+  echo "  ✓ openclaw hook installed at $HOOK_DST"
+  echo "    NOTE: register this hook in ~/.openclaw/openclaw.json under hooks.internal.entries"
+fi
+
 # wait for liveness
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if curl -sS http://127.0.0.1:8400/api/health 2>/dev/null | grep -q '"ok":true'; then
