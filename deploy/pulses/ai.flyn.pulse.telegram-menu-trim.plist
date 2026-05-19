@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>           <string>ai.flyn.pulse.telegram-menu-trim</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{HOME}}/AI/openclaw/flyn-agent/deploy/pulses/telegram_menu_trim.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>                 <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>HOME</key>                 <string>{{HOME}}</string>
+    </dict>
+    <!-- Run every 10 minutes. The openclaw gateway re-pushes 89 commands on
+         every restart, and the health-monitor restarts it every ~5 min. So
+         we re-trim shortly after each restart. The script no-ops when the
+         menu is already 15, so the cost is one cheap getMyCommands call. -->
+    <key>StartInterval</key>          <integer>600</integer>
+    <key>RunAtLoad</key>              <true/>
+    <key>StandardOutPath</key>        <string>/tmp/flyn-telegram-menu-trim.log</string>
+    <key>StandardErrorPath</key>      <string>/tmp/flyn-telegram-menu-trim.log</string>
+  </dict>
+</plist>
