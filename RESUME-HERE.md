@@ -6,7 +6,7 @@
 >
 > You'll have full context in under 60 seconds.
 
-**Last session ended:** 2026-05-16
+**Last session ended:** 2026-05-19
 **Scope:** Flyn as multi-channel orchestrator on Mac Mini 4C for the Cora team + OpenLiteracy as the active dogfood.
 **Operator / CTO:** Ryan Shuken (Telegram chat_id `7191564227`)
 **CEO:** Eric Schneider — pending Telegram (`@flyn_4c_bot` /start required)
@@ -14,22 +14,22 @@
 
 ---
 
-## Flyn Orchestrator — current state (2026-05-16)
+## Flyn Orchestrator — current state (2026-05-19)
 
-The orchestrator buildout is **80%+ done across the 8-phase rubric**.
+The orchestrator buildout is **91%+ done across the 8-phase rubric** (83/91 criteria). 196 commits to main in the last 7 days.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 — MemoryRouter (`:8400`) | ✅ SHIPPED | PR #1 |
-| 1 — Orchestrator foundation (`:8300`) | ✅ SHIPPED | PR #2; 13/14 (Watchdog deferred) |
+| 0 — MemoryRouter (`:8400`) | ✅ SHIPPED | PR #1; read surface added PR #15 (146 tests, flyn-mem CLI) |
+| 1 — Orchestrator foundation (`:8300`) | ✅ SHIPPED | PR #2; **14/14** — Watchdog shipped PR #16+#17 |
 | 1b — Hardening | ✅ SHIPPED | PR #3; 9/9 |
 | 2 — Dev workflow (gh PR open/merge, walk-me-through, file locks) | ✅ SHIPPED | PR #4; 10/10 |
 | 2c — Router refactor | ✅ SHIPPED | PR #8 + #9; router.py 1398 → 554 lines, 4 phase modules |
-| 3 — Research workflow (parallel researchers + critic + synthesizer) | ✅ SHIPPED | PR #5; 7/7 |
-| 4 — Content workflow (PM/Writer/Editor/Factcheck/Humanize + send-via-X) | ✅ SHIPPED | PR #6; 8/8 |
-| 5 — Ops workflow (risk-tier classifier + audit log + tier approval) | ✅ SHIPPED | PR #7; 8/9 + 1 🟡 (ship-gate awaits Ryan-on-live) |
-| 6 — Multi-channel | ⬜ 0/8 | Blocked on DNS for `getcora.io` + Google Workspace OAuth |
-| 7 — Multi-PM | 🟡 3/6 | PR #11 OLWikiPMAdapter + WebhookPMAdapter + conformance suite |
+| 3 — Research workflow (parallel researchers + critic + synthesizer) | ✅ SHIPPED | PR #5; 7/7; Phase 3b auto-rerun on critic block PR #19 |
+| 4 — Content workflow (PM/Writer/Editor/Factcheck/Humanize + send-via-X) | ✅ SHIPPED | PR #6; 8/8; Phase 4b auto-rerun on editor/fact-check block PR #20 |
+| 5 — Ops workflow (risk-tier classifier + audit log + tier approval) | ✅ **9/9** | PR #7 + PRs #23-25 + #28-29; ship-gate Procedure C verified live 2026-05-18 |
+| 6 — Multi-channel | 🟡 4/8 | PR #13; EmailChannelAdapter + SPF/DKIM + injection-detection + subject-tags. Live blocked on DNS + Google Workspace OAuth |
+| 7 — Multi-PM | 🟡 3/6 | PR #11; OLWikiPMAdapter + WebhookPMAdapter + conformance suite |
 
 **Live services on 4C:**
 - `:8100` Graphiti
@@ -47,7 +47,13 @@ The orchestrator buildout is **80%+ done across the 8-phase rubric**.
 - Phase 5 Procedure C — critical-tier ops task end-to-end with rationale
 
 **Auth contention** (KNOWLEDGE/17, 21):
-The orchestrator's `:8300` is stopped (`launchctl unload`) to free OAuth credentials for interactive Claude Code sessions. To re-enable, either generate a real `sk-ant-api03-*` key at console.anthropic.com and put it under `anthropic:default` in `auth-profiles.json`, or accept that running workers will occasionally log out interactive sessions.
+The orchestrator's `:8300` is currently **STOPPED** (`launchctl unloaded` `ai.flyn.orchestrator.plist`) because the `claude-p` backend shares Ryan's OAuth session, logging out interactive Claude Code sessions. Two paths to re-enable:
+  (a) Switch `FLYN_DEFAULT_BACKEND=codex-exec` — uses OpenAI OAuth (not Claude), so no contention.
+  (b) Add a real `sk-ant-api03-*` key at console.anthropic.com under `anthropic:default` in `auth-profiles.json` — orchestrator workers run headlessly, interactive sessions unaffected.
+Decision pending Ryan.
+
+**Flyn-on-Telegram fix (2026-05-19):**
+Today's session resolved Flyn-not-responding-on-Telegram: root cause was 11 stale GPT model IDs in `~/.openclaw/openclaw.json` (now fixed via PR #task-A0) — NOT auth contention as previously documented. Flyn should now respond to Telegram messages normally once the orchestrator is re-enabled.
 
 **Phase 6/7 remaining buildable-without-blockers** (autonomous next):
 - Phase 6.3 EmailChannelAdapter IMAP/SMTP code (live-gated on DNS)
@@ -55,9 +61,9 @@ The orchestrator's `:8300` is stopped (`launchctl unload`) to free OAuth credent
 - Phase 6.6 Subject-line tagging convention docs (`[FLYN-TASK]` etc)
 - Phase 6.7 Email-body prompt-injection detection
 
-**Test count:** 249 across `deploy/orchestrator/tests/` (Phase 7 PR #11 added 57 PMAdapter conformance + adapter-specific tests).
+**Test count:** 394+ across `deploy/orchestrator/tests/` (394 confirmed passing as of PR #24; PR #15 adds 146 memory-router read-surface tests separately).
 
-**Rubric:** `deploy/outcomes/ORCHESTRATOR-PHASE-RUBRIC.md` — **73/87 criteria (84%)** as of PR #11 merge.
+**Rubric:** `deploy/outcomes/ORCHESTRATOR-PHASE-RUBRIC.md` — **83/91 criteria (91%)** as of 2026-05-19 audit. Denominator updated 87→91 after audit reconciliation.
 
 **Recent KNOWLEDGE entries** (lessons captured this week):
 - 15: `claude -p --output-format stream-json` requires `--verbose` (silent 0-byte exit otherwise)
