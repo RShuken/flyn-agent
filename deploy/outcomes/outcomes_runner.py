@@ -60,11 +60,34 @@ def load_api_key() -> str:
 # ---------- Rubric parsing ----------
 
 PHASE_HEADER = re.compile(r"^##\s+Phase\s+(\d+)\s*—\s*([^\n]+?)\s*(?:✅|🟡|⬜)?\s*$")
-ROW = re.compile(r"^\|\s*(\d+\.\d+)\s*(✅|🟡|⬜)?\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$")
+
+# 5-column current orchestrator rubric: | id | criterion | status | evidence | gap |
+ROW_5COL = re.compile(
+    r"^\|\s*(\d+\.\d+)\s*\|\s*(.+?)\s*\|\s*(✅|🟡|⬜)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$"
+)
+# Legacy 4-column format: | id <status?> | criterion | test |  (kept for back-compat)
+ROW_4COL = re.compile(
+    r"^\|\s*(\d+\.\d+)\s*(✅|🟡|⬜)?\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$"
+)
+
+# Checklist-format rubric (e.g., MEMORY-ROUTER-READ-RUBRIC.md):
+CHECKLIST = re.compile(r"^\s*-\s*\[([ xX])\]\s*(.+?)\s*$")
+SECTION_HEADER = re.compile(r"^##\s+(.+?)\s*$")
+
+
+def _status_from_emoji(em):
+    if em == "✅":
+        return "done"
+    if em == "🟡":
+        return "in_progress"
+    return "todo"
 
 
 def parse_phase(rubric_path: Path, phase: int) -> dict:
-    """Return {phase, title, status_overall, criteria: [{id, status, criterion, test}, ...]}"""
+    """Return {phase, title, criteria: [{id, status, criterion, test, gap?}, ...]}.
+
+    Handles both 5-col current orchestrator format AND 4-col legacy format.
+    """
     text = rubric_path.read_text()
     lines = text.splitlines()
     out = {"phase": phase, "title": None, "criteria": []}
@@ -78,22 +101,63 @@ def parse_phase(rubric_path: Path, phase: int) -> dict:
                 continue
             elif in_phase:
                 break  # next phase, stop
-        if in_phase:
-            m = ROW.match(line)
-            if m:
-                cid, status_em, criterion, test = m.groups()
-                # Skip header row
-                if criterion.lower().startswith("criterion"):
-                    continue
-                status = ("done" if status_em == "✅"
-                          else "in_progress" if status_em == "🟡"
-                          else "todo")
-                out["criteria"].append({
-                    "id": cid,
-                    "status": status,
-                    "criterion": criterion.strip(),
-                    "test": test.strip(),
-                })
+        if not in_phase:
+            continue
+        # Prefer 5-col; fall back to 4-col.
+        m5 = ROW_5COL.match(line)
+        if m5:
+            cid, criterion, status_em, evidence, gap = m5.groups()
+            if criterion.lower().startswith("criterion"):
+                continue  # header row
+            out["criteria"].append({
+                "id": cid,
+                "status": _status_from_emoji(status_em),
+                "criterion": criterion.strip(),
+                "test": evidence.strip(),  # evidence column doubles as test reference
+                "gap": gap.strip(),
+            })
+            continue
+        m4 = ROW_4COL.match(line)
+        if m4:
+            cid, status_em, criterion, test = m4.groups()
+            if criterion.lower().startswith("criterion"):
+                continue
+            out["criteria"].append({
+                "id": cid,
+                "status": _status_from_emoji(status_em),
+                "criterion": criterion.strip(),
+                "test": test.strip(),
+            })
+    return out
+
+
+def parse_checklist(rubric_path: Path) -> dict:
+    """Parse a `- [ ]`/`- [x]` checklist rubric (e.g., MEMORY-ROUTER-READ-RUBRIC.md)
+    into the same shape parse_phase returns. Sections become id-prefixes.
+    """
+    text = rubric_path.read_text()
+    lines = text.splitlines()
+    out = {"phase": 0, "title": rubric_path.stem, "criteria": []}
+    section = "root"
+    section_counters: dict[str, int] = {}
+    for line in lines:
+        m_hdr = SECTION_HEADER.match(line)
+        if m_hdr:
+            section = re.sub(r"[^a-z0-9]+", "-", m_hdr.group(1).lower()).strip("-")
+            section_counters.setdefault(section, 0)
+            continue
+        m = CHECKLIST.match(line)
+        if m:
+            mark, criterion_text = m.groups()
+            section_counters.setdefault(section, 0)
+            section_counters[section] += 1
+            done = mark.lower() == "x"
+            out["criteria"].append({
+                "id": f"{section}.{section_counters[section]}",
+                "status": "done" if done else "todo",
+                "criterion": criterion_text.strip(),
+                "test": criterion_text.strip(),
+            })
     return out
 
 
@@ -241,14 +305,67 @@ def run_outcomes(rubric_path: Path, phase: int, max_iter: int = 5,
     return report
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--rubric", required=True, type=Path)
-    ap.add_argument("--phase", required=True, type=int)
-    ap.add_argument("--max-iter", type=int, default=5)
-    ap.add_argument("--model", default="claude-opus-4-7")
-    args = ap.parse_args()
+def score_only(rubric_path: Path, phase: int | None = None,
+                 checklist: bool = False) -> dict:
+    """Parse the rubric and report counts without running any worker/grader.
+    Useful for `outcomes_runner score --rubric ...` (B6).
+    """
+    if checklist:
+        info = parse_checklist(rubric_path)
+    else:
+        if phase is None:
+            raise SystemExit("--phase is required for table-format rubrics")
+        info = parse_phase(rubric_path, phase)
+    if not info.get("title") and not info["criteria"]:
+        raise SystemExit(f"Nothing parsed from {rubric_path} (phase={phase}).")
 
+    counts = {"done": 0, "in_progress": 0, "todo": 0}
+    for c in info["criteria"]:
+        counts[c["status"]] = counts.get(c["status"], 0) + 1
+    total = sum(counts.values())
+    pct = (100 * counts["done"] / total) if total else 0.0
+    return {
+        "rubric": str(rubric_path),
+        "phase": info["phase"],
+        "title": info["title"],
+        "counts": counts,
+        "total": total,
+        "percent_done": round(pct, 1),
+        "unmet": [c["id"] for c in info["criteria"] if c["status"] != "done"],
+    }
+
+
+def main() -> int:
+    # Back-compat shim: detect legacy invocation (no subcommand, just flags).
+    # If argv[1] is `score` or `run`, use subcommand parsing. Otherwise assume legacy `run`.
+    argv = list(sys.argv[1:])
+    if argv and argv[0] not in ("score", "run"):
+        argv.insert(0, "run")  # Default subcommand for back-compat
+
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    run_p = sub.add_parser("run", help="Worker→grader loop for unmet criteria")
+    run_p.add_argument("--rubric", required=True, type=Path)
+    run_p.add_argument("--phase", required=True, type=int)
+    run_p.add_argument("--max-iter", type=int, default=5)
+    run_p.add_argument("--model", default="claude-opus-4-7")
+
+    score_p = sub.add_parser("score", help="Parse + count criteria, no LLM calls")
+    score_p.add_argument("--rubric", required=True, type=Path)
+    score_p.add_argument("--phase", type=int, default=None,
+                           help="phase number (required for table-format rubrics)")
+    score_p.add_argument("--checklist", action="store_true",
+                           help="parse as checklist format (- [ ] / - [x])")
+
+    args = ap.parse_args(argv)
+
+    if args.cmd == "score":
+        result = score_only(args.rubric, args.phase, args.checklist)
+        print(json.dumps(result, indent=2))
+        return 0
+
+    # cmd == "run"
     report = run_outcomes(args.rubric, args.phase, args.max_iter, args.model)
     print(json.dumps({k: v for k, v in report.items() if k != "history"}, indent=2))
     print(f"\nFull log: {LOG_DIR}/{report['run_id']}-phase{args.phase}.json")
