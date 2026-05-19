@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conversation Memory — Telegram Slice 1 · Design Specification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,500&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:        #F2EBD9;
+  --paper-deep:   #ECE3CC;
+  --paper-shadow: #DDD2B6;
+  --ink:          #14213D;
+  --ink-soft:     #2E3E5C;
+  --ink-faint:    #586480;
+  --muted:        #8B7355;
+  --rule:         rgba(20, 33, 61, 0.18);
+  --rule-strong:  rgba(20, 33, 61, 0.65);
+  --accent:       #C8392F;
+  --accent-soft:  rgba(200, 57, 47, 0.10);
+  --accent-line:  rgba(200, 57, 47, 0.45);
+  --highlight:    #E8DBA3;
+  --ok:           #5C7548;
+
+  --serif:  'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --mono:   'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-variation-settings: "opsz" 14, "SOFT" 50;
+  color: var(--ink);
+  background: var(--paper);
+  background-image:
+    radial-gradient(at 20% 10%, rgba(200, 57, 47, 0.04) 0%, transparent 40%),
+    radial-gradient(at 80% 70%, rgba(20, 33, 61, 0.04) 0%, transparent 50%);
+  line-height: 1.65;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* paper grain */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.13 0 0 0 0 0.24 0 0 0 0.30 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 60px;
+  position: relative;
+  z-index: 2;
+}
+
+/* ------------ HEADER STRIP ------------ */
+.header-strip {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  padding: 28px 0 18px;
+  border-bottom: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.header-strip .doc-id { font-weight: 500; }
+.header-strip .doc-id span.accent { color: var(--accent); font-weight: 600; }
+.header-strip .doc-meta {
+  text-align: right;
+  display: flex;
+  gap: 28px;
+  align-items: baseline;
+}
+.header-strip .doc-meta b {
+  color: var(--ink);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+/* ------------ HERO ------------ */
+.hero {
+  padding: 110px 0 70px;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 80px;
+  align-items: start;
+  position: relative;
+}
+.hero::before {
+  content: 'CM·01';
+  position: absolute;
+  top: 90px;
+  right: 0;
+  font-family: var(--mono);
+  font-size: 130px;
+  font-weight: 200;
+  color: var(--paper-shadow);
+  letter-spacing: -0.05em;
+  z-index: -1;
+  user-select: none;
+}
+
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 36px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.hero-eyebrow::before, .hero-eyebrow::after {
+  content: '';
+  flex: 0 0 24px;
+  height: 1px;
+  background: var(--accent);
+}
+.hero-eyebrow::before { flex: 0 0 36px; }
+.hero-eyebrow::after { display: none; }
+
+h1.hero-title {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: clamp(56px, 8vw, 124px);
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+  margin-bottom: 28px;
+}
+h1.hero-title em {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--accent);
+  font-variation-settings: "opsz" 144;
+}
+h1.hero-title .slash {
+  color: var(--ink-faint);
+  font-weight: 200;
+  margin: 0 0.1em;
+}
+
+.hero-tagline {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 680px;
+  margin-bottom: 48px;
+  font-variation-settings: "opsz" 24;
+}
+.hero-tagline span.mono-em {
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 500;
+  background: var(--highlight);
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+
+.hero-sidebar {
+  border-left: 1px solid var(--rule);
+  padding-left: 28px;
+  margin-top: 220px;
+}
+.hero-sidebar dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 16px;
+  row-gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hero-sidebar dt { color: var(--ink-faint); font-weight: 400; }
+.hero-sidebar dd { color: var(--ink); font-weight: 500; }
+.hero-sidebar dd.accent { color: var(--accent); font-weight: 600; }
+
+/* ------------ SECTION SCAFFOLDING ------------ */
+section {
+  padding: 100px 0;
+  border-top: 1px solid var(--rule);
+  position: relative;
+}
+section:first-of-type { border-top: none; }
+
+.sec-marker {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 40px;
+  align-items: baseline;
+  margin-bottom: 60px;
+}
+.sec-marker .roman {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-weight: 600;
+  padding-top: 22px;
+  border-top: 2px solid var(--accent);
+  white-space: nowrap;
+}
+.sec-marker .sec-title h2 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(36px, 5vw, 62px);
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  font-variation-settings: "opsz" 72;
+  margin-bottom: 16px;
+}
+.sec-marker .sec-title h2 em {
+  font-style: italic;
+  color: var(--accent);
+}
+.sec-marker .sec-title .lede {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-style: italic;
+  color: var(--ink-soft);
+  max-width: 720px;
+  line-height: 1.55;
+}
+
+/* ------------ PROBLEM SECTION ------------ */
+.problem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  margin-top: 40px;
+}
+.problem-block h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 22px;
+}
+.problem-block p {
+  font-size: 20px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin-bottom: 18px;
+  font-variation-settings: "opsz" 18;
+}
+.problem-block p.kicker {
+  font-size: 28px;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--ink);
+  border-left: 3px solid var(--accent);
+  padding-left: 24px;
+  font-variation-settings: "opsz" 36;
+}
+.problem-block strong {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--highlight);
+  padding: 0 2px;
+}
+
+/* ------------ ARCHITECTURE DIAGRAM ------------ */
+.diagram-wrap {
+  margin: 60px 0 30px;
+  padding: 50px 30px;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule);
+  position: relative;
+  overflow: hidden;
+}
+.diagram-wrap::before {
+  content: 'FIG.1';
+  position: absolute;
+  top: 14px;
+  left: 22px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+.diagram-wrap::after {
+  content: 'SYSTEM SCHEMATIC — DATA INGRESS, STORAGE, RETRIEVAL';
+  position: absolute;
+  top: 14px;
+  right: 22px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+.diagram-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 720px;
+}
+
+.legend {
+  display: flex;
+  gap: 36px;
+  margin-top: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  flex-wrap: wrap;
+}
+.legend .item { display: flex; align-items: center; gap: 8px; }
+.legend .swatch {
+  width: 18px;
+  height: 2px;
+  background: var(--ink);
+}
+.legend .swatch.new { background: var(--accent); }
+.legend .swatch.async {
+  background: transparent;
+  border-top: 2px dashed var(--accent);
+  height: 0;
+}
+.legend .swatch.box { height: 14px; background: var(--paper); border: 1.5px solid var(--ink); }
+.legend .swatch.box.new { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ------------ DATA FLOW TIMELINE ------------ */
+.timeline {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 0;
+  margin: 60px 0 30px;
+  position: relative;
+}
+.timeline::after {
+  content: '';
+  position: absolute;
+  left: 130px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--ink);
+}
+.tl-row {
+  display: contents;
+}
+.tl-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  padding: 18px 24px 18px 0;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  position: relative;
+}
+.tl-time::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 26px;
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--paper);
+}
+.tl-row.dim .tl-time {
+  color: var(--ink-faint);
+}
+.tl-row.dim .tl-time::after {
+  background: var(--ink-faint);
+}
+.tl-content {
+  padding: 14px 0 14px 32px;
+  border-bottom: 1px dashed var(--rule);
+}
+.tl-row:last-child .tl-content { border-bottom: none; }
+.tl-content .tl-actor {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.tl-content .tl-action {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--ink);
+  font-variation-settings: "opsz" 20;
+}
+.tl-content .tl-action code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  background: var(--paper-shadow);
+  padding: 1px 6px;
+  color: var(--ink);
+  border-radius: 2px;
+}
+.tl-content .tl-action em {
+  font-style: italic;
+  color: var(--accent);
+}
+.tl-row.async-gap .tl-time {
+  font-style: italic;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+}
+.tl-row.async-gap .tl-time::after { display: none; }
+.tl-row.async-gap .tl-content {
+  border-bottom-style: solid;
+  border-bottom-color: var(--rule-strong);
+  padding-top: 28px;
+  padding-bottom: 8px;
+}
+
+/* ------------ 11 DECISIONS ------------ */
+.decisions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px 36px;
+  margin-top: 30px;
+}
+.decision {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 20px;
+  padding: 18px 0;
+  border-top: 1px solid var(--rule);
+}
+.decision .d-num {
+  font-family: var(--serif);
+  font-size: 44px;
+  font-weight: 200;
+  line-height: 0.9;
+  color: var(--accent);
+  font-variation-settings: "opsz" 48;
+  letter-spacing: -0.05em;
+}
+.decision .d-num small {
+  font-family: var(--mono);
+  font-size: 10px;
+  display: block;
+  letter-spacing: 0.2em;
+  color: var(--ink-faint);
+  font-weight: 500;
+  margin-top: 2px;
+}
+.decision .d-body h4 {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.3;
+  margin-bottom: 6px;
+  color: var(--ink);
+  font-variation-settings: "opsz" 24;
+}
+.decision .d-body p {
+  font-size: 14px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+.decision .d-body p code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ------------ COMPONENTS ------------ */
+.components {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 30px;
+}
+.comp-card {
+  border: 1px solid var(--rule);
+  padding: 28px 26px 32px;
+  background: var(--paper-deep);
+  position: relative;
+  transition: transform 0.3s ease;
+}
+.comp-card:hover { transform: translateY(-3px); }
+.comp-card .c-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.comp-card h4 {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 14px;
+  letter-spacing: -0.01em;
+}
+.comp-card p {
+  font-size: 15px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+.comp-card ul {
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+}
+.comp-card ul li {
+  padding-left: 14px;
+  position: relative;
+  line-height: 1.7;
+}
+.comp-card ul li::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+.comp-card .file-size {
+  position: absolute;
+  top: 16px;
+  right: 22px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: var(--ink-faint);
+}
+
+/* ------------ SCHEMA ------------ */
+.schema-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 22px;
+  margin-top: 30px;
+}
+.sql-table {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  position: relative;
+}
+.sql-table .t-head {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sql-table .t-head .badge {
+  font-size: 9px;
+  background: var(--accent);
+  padding: 3px 8px;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+}
+.sql-table .t-rows {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.sql-table .row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--rule);
+  gap: 12px;
+}
+.sql-table .row:last-child { border-bottom: none; }
+.sql-table .row .field { color: var(--ink); font-weight: 500; }
+.sql-table .row .type {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  text-transform: uppercase;
+  align-self: center;
+}
+.sql-table .row.pk .field::after {
+  content: ' PK';
+  font-size: 9px;
+  color: var(--accent);
+  letter-spacing: 0.15em;
+  font-weight: 700;
+}
+.sql-table .row.fk .field::after {
+  content: ' FK';
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.15em;
+  font-weight: 700;
+}
+.sql-table .row.encrypted {
+  background: var(--accent-soft);
+}
+.sql-table .row.encrypted .type {
+  color: var(--accent);
+}
+
+/* ------------ CLI MOCKUP ------------ */
+.cli-block {
+  margin-top: 40px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 32px 38px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.8;
+  position: relative;
+  overflow-x: auto;
+}
+.cli-block::before {
+  content: '◉  ◉  ◉';
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  color: var(--ink-faint);
+}
+.cli-block .prompt { color: var(--accent); user-select: none; }
+.cli-block .cmd { color: var(--paper); font-weight: 500; }
+.cli-block .flag { color: #E8DBA3; }
+.cli-block .out { color: var(--ink-faint); font-style: italic; padding-left: 0; display: block; }
+.cli-block .comment { color: var(--ink-faint); }
+.cli-block .pad { display: block; height: 8px; }
+
+/* ------------ PERFORMANCE TABLE ------------ */
+.perf-table {
+  margin-top: 40px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+.perf-table .pt-head, .perf-table .pt-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 2.5fr;
+  gap: 24px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.perf-table .pt-head {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.perf-table .pt-row { font-size: 15px; }
+.perf-table .pt-row:last-child { border-bottom: none; }
+.perf-table .pt-row .label {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.perf-table .pt-row .target {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 13px;
+}
+.perf-table .pt-row .note {
+  color: var(--ink-soft);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* ------------ SCOPE COMPARISON ------------ */
+.scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin-top: 40px;
+  border: 1px solid var(--rule-strong);
+}
+.scope-col {
+  padding: 36px 36px 40px;
+}
+.scope-col:first-child {
+  border-right: 1px solid var(--rule-strong);
+  background: var(--paper-deep);
+}
+.scope-col h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.scope-col h3 .acc { color: var(--accent); }
+.scope-col .tag {
+  font-family: var(--serif);
+  font-size: 32px;
+  font-style: italic;
+  margin-bottom: 24px;
+  font-weight: 400;
+  font-variation-settings: "opsz" 36;
+  color: var(--ink);
+}
+.scope-col ul {
+  list-style: none;
+  font-family: var(--serif);
+}
+.scope-col ul li {
+  padding: 10px 0 10px 28px;
+  position: relative;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  border-bottom: 1px dashed var(--rule);
+}
+.scope-col ul li:last-child { border-bottom: none; }
+.scope-col ul li::before {
+  position: absolute;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  top: 12px;
+}
+.scope-col.now ul li::before { content: '✓'; color: var(--ok); }
+.scope-col.later ul li::before { content: '◯'; color: var(--ink-faint); }
+.scope-col ul li small {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+
+/* ------------ FAILURE TABLE ------------ */
+.fail-block {
+  margin-top: 30px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.fail-card {
+  border-left: 3px solid var(--accent);
+  padding: 14px 18px 16px;
+  background: var(--paper-deep);
+}
+.fail-card .fail-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.fail-card .fail-action {
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+/* ------------ FOOTER ------------ */
+.foot {
+  margin-top: 40px;
+  padding: 50px 0 80px;
+  border-top: 2px solid var(--accent);
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 50px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  line-height: 1.7;
+}
+.foot h5 {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.foot p { margin-bottom: 8px; }
+.foot a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.foot a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.foot .sig {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  font-variation-settings: "opsz" 18;
+  color: var(--ink);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+/* ------------ ANIMATIONS ------------ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal {
+  opacity: 0;
+  animation: fadeIn 0.9s cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
+}
+.reveal:nth-child(1) { animation-delay: 0s; }
+.reveal:nth-child(2) { animation-delay: 0.1s; }
+.reveal:nth-child(3) { animation-delay: 0.2s; }
+.reveal:nth-child(4) { animation-delay: 0.3s; }
+
+.hero-eyebrow { animation: fadeIn 0.6s ease 0.1s both; }
+h1.hero-title { animation: fadeIn 0.9s cubic-bezier(0.2, 0.65, 0.3, 1) 0.2s both; }
+.hero-tagline { animation: fadeIn 0.7s ease 0.5s both; }
+.hero-sidebar { animation: fadeIn 0.7s ease 0.7s both; }
+.header-strip { animation: fadeIn 0.5s ease 0s both; }
+
+/* responsive */
+@media (max-width: 980px) {
+  .page { padding: 0 24px; }
+  .hero { grid-template-columns: 1fr; gap: 40px; }
+  .hero::before { font-size: 80px; top: 60px; }
+  .hero-sidebar { margin-top: 0; padding-left: 0; border-left: none; border-top: 1px solid var(--rule); padding-top: 30px; }
+  .sec-marker { grid-template-columns: 1fr; gap: 20px; }
+  .sec-marker .roman { padding-top: 0; }
+  .problem-grid { grid-template-columns: 1fr; gap: 40px; }
+  .decisions { grid-template-columns: 1fr; }
+  .components { grid-template-columns: 1fr; }
+  .schema-grid { grid-template-columns: 1fr; }
+  .scope-grid { grid-template-columns: 1fr; }
+  .scope-col:first-child { border-right: none; border-bottom: 1px solid var(--rule-strong); }
+  .fail-block { grid-template-columns: 1fr; }
+  .foot { grid-template-columns: 1fr; }
+  .timeline { grid-template-columns: 90px 1fr; }
+  .timeline::after { left: 90px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ────────── HEADER STRIP ────────── -->
+<div class="page">
+<div class="header-strip">
+  <div class="doc-id">FLYN AGENT · DESIGN SPEC · <span class="accent">CONVERSATION MEMORY / SLICE 1</span></div>
+  <div class="doc-meta">
+    <span>STATUS<b>AWAITING REVIEW</b></span>
+    <span>REV<b>2026-05-19</b></span>
+    <span>FILE<b>CM-01</b></span>
+  </div>
+</div>
+
+<!-- ────────── HERO ────────── -->
+<header class="hero">
+  <div>
+    <div class="hero-eyebrow">An addendum to memory-router</div>
+    <h1 class="hero-title">Conversation<br>Memory<span class="slash">,</span><br><em>for Flyn.</em></h1>
+    <p class="hero-tagline">
+      A new tier inside memory-router that captures every Telegram message,
+      stores it in a <span class="mono-em">per-owner encrypted SQLite</span>,
+      promotes it to Graphiti's temporal graph, and surfaces it through the
+      existing <span class="mono-em">flyn-mem query</span> fan-out — so Flyn
+      stops forgetting across channels.
+    </p>
+  </div>
+  <aside class="hero-sidebar">
+    <dl>
+      <dt>Author</dt><dd>R. Shuken + Claude</dd>
+      <dt>Date</dt><dd>2026-05-19</dd>
+      <dt>Scope</dt><dd class="accent">Telegram only</dd>
+      <dt>Service</dt><dd>memory-router :8400</dd>
+      <dt>Storage</dt><dd>SQLite + FTS5</dd>
+      <dt>Crypto</dt><dd>AES-GCM, Keychain</dd>
+      <dt>Promotes to</dt><dd>Graphiti :8100</dd>
+      <dt>New surfaces</dt><dd>conv_read · conv CLI</dd>
+      <dt>Code budget</dt><dd>~1,400 lines</dd>
+      <dt>Tests</dt><dd>≤20 + live smoke</dd>
+    </dl>
+  </aside>
+</header>
+
+<!-- ────────── PROBLEM ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ I  ·  PROBLEM</div>
+    <div class="sec-title">
+      <h2>The gap between<br>conversation <em>and</em> memory.</h2>
+      <p class="lede">
+        Flyn handles channels well. It does not yet remember them.
+      </p>
+    </div>
+  </div>
+  <div class="problem-grid">
+    <div class="problem-block">
+      <h3>The State Today</h3>
+      <p class="kicker">A Telegram conversation with Beth on Monday does not inform Flyn's behaviour on Wednesday.</p>
+      <p>The OpenClaw built-in memory captures <strong>agent turns</strong>, not raw inbound traffic. Graphiti captures <strong>facts</strong>, not the message stream that produced them. The memory-router has ten read sources — none of them include actual conversation history.</p>
+    </div>
+    <div class="problem-block">
+      <h3>The Promise</h3>
+      <p class="kicker">Every inbound message becomes searchable conversation memory.</p>
+      <p>Security-grade encryption for replay. Entity-graph promotion for cross-channel <em>"when did X happen"</em> queries. A small, reversible slice that proves the architecture before fanning out to WhatsApp, iMessage, and email.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── ARCHITECTURE ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ II  ·  ARCHITECTURE</div>
+    <div class="sec-title">
+      <h2>One service, six tiers, <em>one new hook.</em></h2>
+      <p class="lede">
+        Conversation memory lives <em>inside</em> memory-router — not as a sibling.
+        We extend an existing system rather than stand up another one.
+      </p>
+    </div>
+  </div>
+
+  <div class="diagram-wrap">
+<svg viewBox="0 0 1200 660" xmlns="http://www.w3.org/2000/svg" font-family="JetBrains Mono, monospace">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#14213D"/>
+    </marker>
+    <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#C8392F"/>
+    </marker>
+    <marker id="arrFaint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#586480"/>
+    </marker>
+  </defs>
+
+  <!-- Title and zones -->
+  <text x="40" y="34" font-size="10" fill="#C8392F" letter-spacing="2" font-weight="700">▍ SYNCHRONOUS PATH</text>
+  <text x="40" y="490" font-size="10" fill="#C8392F" letter-spacing="2" font-weight="700">▍ ASYNCHRONOUS PATH</text>
+
+  <!-- Telegram User -->
+  <g>
+    <rect x="50" y="60" width="180" height="58" fill="#F2EBD9" stroke="#14213D" stroke-width="1.5"/>
+    <text x="140" y="83" text-anchor="middle" font-size="12" fill="#14213D" font-weight="600" letter-spacing="1">TELEGRAM USER</text>
+    <text x="140" y="102" text-anchor="middle" font-size="10" fill="#586480" font-style="italic">sends a message</text>
+  </g>
+
+  <!-- arrow -->
+  <line x1="230" y1="89" x2="262" y2="89" stroke="#14213D" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- OpenClaw Gateway -->
+  <g>
+    <rect x="264" y="60" width="200" height="58" fill="#F2EBD9" stroke="#14213D" stroke-width="1.5"/>
+    <text x="364" y="80" text-anchor="middle" font-size="12" fill="#14213D" font-weight="600" letter-spacing="1">OPENCLAW GATEWAY</text>
+    <text x="364" y="98" text-anchor="middle" font-size="9.5" fill="#586480">existing · getUpdates polling</text>
+    <text x="364" y="111" text-anchor="middle" font-size="9" fill="#586480">~100ms</text>
+  </g>
+
+  <!-- arrow -->
+  <line x1="464" y1="89" x2="500" y2="89" stroke="#C8392F" stroke-width="1.5" marker-end="url(#arrR)" stroke-dasharray="0"/>
+
+  <!-- NEW Hook -->
+  <g>
+    <rect x="502" y="58" width="218" height="62" fill="rgba(200,57,47,0.10)" stroke="#C8392F" stroke-width="2"/>
+    <text x="611" y="78" text-anchor="middle" font-size="11" fill="#C8392F" font-weight="700" letter-spacing="1.5">▏NEW INTERNAL HOOK</text>
+    <text x="611" y="96" text-anchor="middle" font-size="11" fill="#14213D" font-weight="500">flyn-conv-memory-tap</text>
+    <text x="611" y="110" text-anchor="middle" font-size="9" fill="#586480" font-style="italic">fires on every inbound message</text>
+  </g>
+
+  <!-- arrow down to ingest -->
+  <path d="M 611 122 L 611 145 L 611 165" stroke="#14213D" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <text x="618" y="143" font-size="9" fill="#14213D" font-weight="500">POST /api/memory/ingest</text>
+
+  <!-- memory-router main box -->
+  <g>
+    <rect x="80" y="170" width="1060" height="280" fill="#ECE3CC" stroke="#14213D" stroke-width="1.5"/>
+    <text x="100" y="194" font-size="11" fill="#14213D" font-weight="700" letter-spacing="2">MEMORY-ROUTER  ·  :8400</text>
+    <text x="100" y="208" font-size="9" fill="#586480" letter-spacing="0.5">unchanged service. one new tier. one new write adapter. one new read adapter.</text>
+
+    <!-- Existing pipeline (left) -->
+    <rect x="100" y="234" width="200" height="50" fill="#F2EBD9" stroke="#14213D" stroke-width="1"/>
+    <text x="200" y="252" text-anchor="middle" font-size="10" fill="#14213D" font-weight="600">DEDUP</text>
+    <text x="200" y="266" text-anchor="middle" font-size="9" fill="#586480">existing</text>
+    <text x="200" y="278" text-anchor="middle" font-size="8.5" fill="#586480">(source, dedup_key)</text>
+
+    <line x1="300" y1="259" x2="318" y2="259" stroke="#14213D" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <rect x="320" y="234" width="200" height="50" fill="#F2EBD9" stroke="#14213D" stroke-width="1"/>
+    <text x="420" y="252" text-anchor="middle" font-size="10" fill="#14213D" font-weight="600">REDACT</text>
+    <text x="420" y="266" text-anchor="middle" font-size="9" fill="#586480">existing</text>
+    <text x="420" y="278" text-anchor="middle" font-size="8.5" fill="#586480">strip secrets from body+raw</text>
+
+    <line x1="520" y1="259" x2="538" y2="259" stroke="#C8392F" stroke-width="1.5" marker-end="url(#arrR)"/>
+
+    <!-- NEW: conv_write -->
+    <rect x="540" y="222" width="350" height="74" fill="rgba(200,57,47,0.10)" stroke="#C8392F" stroke-width="2"/>
+    <text x="555" y="240" font-size="9" fill="#C8392F" font-weight="700" letter-spacing="1.5">NEW · adapters/conv_write.py</text>
+    <text x="555" y="256" font-size="11" fill="#14213D" font-weight="600">CONVERSATION WRITE ADAPTER</text>
+    <text x="555" y="272" font-size="9" fill="#14213D">┃ owner.resolve  ·  encrypted_raw.seal</text>
+    <text x="555" y="286" font-size="9" fill="#14213D">┃ ConvDb.write  ·  enqueue summarize  ·  POST Graphiti</text>
+
+    <!-- conv module -->
+    <rect x="100" y="318" width="790" height="118" fill="#F2EBD9" stroke="#C8392F" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="118" y="338" font-size="10" fill="#C8392F" font-weight="700" letter-spacing="1.5">NEW · conv/ module</text>
+
+    <!-- inner sub-modules -->
+    <rect x="118" y="350" width="170" height="74" fill="#ECE3CC" stroke="#14213D" stroke-width="1"/>
+    <text x="203" y="370" text-anchor="middle" font-size="10.5" fill="#14213D" font-weight="600">schema.py</text>
+    <text x="203" y="385" text-anchor="middle" font-size="9" fill="#586480">SQLite + FTS5</text>
+    <text x="203" y="398" text-anchor="middle" font-size="9" fill="#586480">messages, fts, triggers</text>
+    <text x="203" y="411" text-anchor="middle" font-size="9" fill="#586480">≤ 200 lines</text>
+
+    <rect x="298" y="350" width="170" height="74" fill="#ECE3CC" stroke="#14213D" stroke-width="1"/>
+    <text x="383" y="370" text-anchor="middle" font-size="10.5" fill="#14213D" font-weight="600">owner.py</text>
+    <text x="383" y="385" text-anchor="middle" font-size="9" fill="#586480">registry · grants</text>
+    <text x="383" y="398" text-anchor="middle" font-size="9" fill="#586480">audit_log · default-deny</text>
+    <text x="383" y="411" text-anchor="middle" font-size="9" fill="#586480">≤ 150 lines</text>
+
+    <rect x="478" y="350" width="170" height="74" fill="#ECE3CC" stroke="#14213D" stroke-width="1"/>
+    <text x="563" y="370" text-anchor="middle" font-size="10.5" fill="#14213D" font-weight="600">encrypted_raw.py</text>
+    <text x="563" y="385" text-anchor="middle" font-size="9" fill="#586480">AES-GCM · per-owner key</text>
+    <text x="563" y="398" text-anchor="middle" font-size="9" fill="#C8392F" font-weight="600">macOS Keychain</text>
+    <text x="563" y="411" text-anchor="middle" font-size="9" fill="#586480">≤ 150 lines</text>
+
+    <rect x="658" y="350" width="220" height="74" fill="#ECE3CC" stroke="#14213D" stroke-width="1"/>
+    <text x="768" y="370" text-anchor="middle" font-size="10.5" fill="#14213D" font-weight="600">summarizer.py</text>
+    <text x="768" y="385" text-anchor="middle" font-size="9" fill="#586480">background worker thread</text>
+    <text x="768" y="398" text-anchor="middle" font-size="9" fill="#586480">Ollama · gemma4:e4b</text>
+    <text x="768" y="411" text-anchor="middle" font-size="9" fill="#586480">≤ 150 lines</text>
+
+    <!-- conv_read on the right -->
+    <rect x="920" y="222" width="200" height="74" fill="rgba(200,57,47,0.10)" stroke="#C8392F" stroke-width="2"/>
+    <text x="932" y="240" font-size="9" fill="#C8392F" font-weight="700" letter-spacing="1.5">NEW · adapters/</text>
+    <text x="1020" y="257" text-anchor="middle" font-size="11" fill="#14213D" font-weight="600">conv_read</text>
+    <text x="1020" y="271" text-anchor="middle" font-size="9" fill="#586480">11th adapter in fan-out</text>
+    <text x="1020" y="284" text-anchor="middle" font-size="9" fill="#586480">FTS5 over body + summary</text>
+
+    <!-- query route to conv_read -->
+    <text x="930" y="320" font-size="9" fill="#586480" letter-spacing="0.5">flyn-mem query → RRF</text>
+    <line x1="1020" y1="297" x2="1020" y2="320" stroke="#586480" stroke-width="1" marker-end="url(#arrFaint)"/>
+  </g>
+
+  <!-- DB cylinders (per-owner) -->
+  <g>
+    <ellipse cx="170" cy="540" rx="60" ry="9" fill="none" stroke="#14213D" stroke-width="1.4"/>
+    <path d="M 110 540 L 110 580 A 60 9 0 0 0 230 580 L 230 540" fill="#F2EBD9" stroke="#14213D" stroke-width="1.4"/>
+    <ellipse cx="170" cy="540" rx="60" ry="9" fill="#F2EBD9" stroke="#14213D" stroke-width="1.4"/>
+    <text x="170" y="544" text-anchor="middle" font-size="11" fill="#14213D" font-weight="600">ryan.db</text>
+    <text x="170" y="595" text-anchor="middle" font-size="9" fill="#586480">~/.flyn/memory-router/conv/</text>
+    <text x="170" y="608" text-anchor="middle" font-size="9" fill="#C8392F" font-weight="600">PER-OWNER ISOLATION</text>
+  </g>
+  <g>
+    <ellipse cx="310" cy="540" rx="50" ry="8" fill="none" stroke="#586480" stroke-width="1.2"/>
+    <path d="M 260 540 L 260 575 A 50 8 0 0 0 360 575 L 360 540" fill="#F2EBD9" stroke="#586480" stroke-width="1.2"/>
+    <ellipse cx="310" cy="540" rx="50" ry="8" fill="#F2EBD9" stroke="#586480" stroke-width="1.2"/>
+    <text x="310" y="544" text-anchor="middle" font-size="10" fill="#586480" font-style="italic">beth.db</text>
+    <text x="310" y="595" text-anchor="middle" font-size="9" fill="#586480">future</text>
+  </g>
+  <g>
+    <ellipse cx="420" cy="540" rx="50" ry="8" fill="none" stroke="#586480" stroke-width="1.2"/>
+    <path d="M 370 540 L 370 575 A 50 8 0 0 0 470 575 L 470 540" fill="#F2EBD9" stroke="#586480" stroke-width="1.2"/>
+    <ellipse cx="420" cy="540" rx="50" ry="8" fill="#F2EBD9" stroke="#586480" stroke-width="1.2"/>
+    <text x="420" y="544" text-anchor="middle" font-size="10" fill="#586480" font-style="italic">eric.db</text>
+    <text x="420" y="595" text-anchor="middle" font-size="9" fill="#586480">future</text>
+  </g>
+  <g>
+    <ellipse cx="540" cy="540" rx="50" ry="8" fill="none" stroke="#14213D" stroke-width="1.2"/>
+    <path d="M 490 540 L 490 575 A 50 8 0 0 0 590 575 L 590 540" fill="#ECE3CC" stroke="#14213D" stroke-width="1.2"/>
+    <ellipse cx="540" cy="540" rx="50" ry="8" fill="#ECE3CC" stroke="#14213D" stroke-width="1.2"/>
+    <text x="540" y="544" text-anchor="middle" font-size="10" fill="#14213D" font-weight="500">owners.db</text>
+    <text x="540" y="595" text-anchor="middle" font-size="9" fill="#586480">grants · audit</text>
+  </g>
+
+  <!-- write line into ryan.db -->
+  <path d="M 600 440 Q 600 480 170 525" stroke="#14213D" stroke-width="1.4" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Ollama (async) -->
+  <g>
+    <rect x="730" y="510" width="170" height="58" fill="#F2EBD9" stroke="#14213D" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="815" y="530" text-anchor="middle" font-size="11" fill="#14213D" font-weight="600">OLLAMA :11434</text>
+    <text x="815" y="546" text-anchor="middle" font-size="9.5" fill="#586480">gemma4:e4b</text>
+    <text x="815" y="560" text-anchor="middle" font-size="9" fill="#586480" font-style="italic">summary, 3-8s typical</text>
+  </g>
+  <path d="M 768 440 Q 768 475 815 510" stroke="#C8392F" stroke-width="1.4" fill="none" stroke-dasharray="5 3" marker-end="url(#arrR)"/>
+  <path d="M 815 568 Q 600 600 230 575" stroke="#C8392F" stroke-width="1.4" fill="none" stroke-dasharray="5 3" marker-end="url(#arrR)"/>
+  <text x="500" y="618" font-size="9" fill="#C8392F" font-style="italic" font-weight="500">UPDATE messages SET summary = ?</text>
+
+  <!-- Graphiti (right side) -->
+  <g>
+    <rect x="950" y="510" width="190" height="58" fill="#F2EBD9" stroke="#14213D" stroke-width="1.5"/>
+    <text x="1045" y="530" text-anchor="middle" font-size="11" fill="#14213D" font-weight="600">GRAPHITI :8100</text>
+    <text x="1045" y="546" text-anchor="middle" font-size="9.5" fill="#586480">temporal entity graph</text>
+    <text x="1045" y="560" text-anchor="middle" font-size="9" fill="#586480" font-style="italic">episode per message</text>
+  </g>
+  <path d="M 880 320 Q 1020 420 1045 510" stroke="#14213D" stroke-width="1.4" fill="none" marker-end="url(#arr)"/>
+  <text x="980" y="395" font-size="9" fill="#14213D" font-weight="500">POST episode</text>
+  <text x="980" y="408" font-size="9" fill="#586480" font-style="italic">group_id=flyn-ryan</text>
+</svg>
+  </div>
+
+  <div class="legend">
+    <div class="item"><div class="swatch"></div>existing surface</div>
+    <div class="item"><div class="swatch new"></div>new in this slice</div>
+    <div class="item"><div class="swatch async"></div>asynchronous</div>
+    <div class="item"><div class="swatch box"></div>existing module</div>
+    <div class="item"><div class="swatch box new"></div>new module</div>
+  </div>
+</section>
+
+<!-- ────────── DATA FLOW ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ III  ·  DATA FLOW</div>
+    <div class="sec-title">
+      <h2>From key-press to recall, <em>annotated.</em></h2>
+      <p class="lede">A single Telegram message's lifecycle through the system, with timing budgets.</p>
+    </div>
+  </div>
+
+  <div class="timeline">
+
+    <div class="tl-row">
+      <div class="tl-time">t = 0 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">User · Telegram client</div>
+        <div class="tl-action">Sends a message in their chat with <code>@flyn_4c_bot</code>.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~100 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">OpenClaw Gateway · existing</div>
+        <div class="tl-action">Picks up the message via <code>getUpdates</code> polling.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~110 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">flyn-conv-memory-tap · <em>new internal hook</em></div>
+        <div class="tl-action">Hook fires <em>before</em> openclaw's agent sees the message. Builds a POST payload with source, body, raw_payload, and a stable dedup_key.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~115 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">server.py · /api/memory/ingest</div>
+        <div class="tl-action">Routes by <code>event_type</code>: <code>conversation_message</code> dispatches to the new conv_write adapter.</div>
+      </div>
+    </div>
+
+    <div class="tl-row dim">
+      <div class="tl-time">~118 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">dedup · existing</div>
+        <div class="tl-action">Check <code>(source, dedup_key)</code>. Drops Telegram resends transparently.</div>
+      </div>
+    </div>
+
+    <div class="tl-row dim">
+      <div class="tl-time">~120 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">redact.py · existing</div>
+        <div class="tl-action">Strip secrets from body and raw_payload using the existing allowlist.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~122 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">owner.resolve_from_chat</div>
+        <div class="tl-action">Map <code>("telegram", sender_id)</code> &rarr; <code>Owner("ryan")</code> via <code>principals.json</code>. Unknown senders fail loudly — never silently filed.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~125 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">encrypted_raw.seal</div>
+        <div class="tl-action">AES-GCM seal of the redacted raw payload with the per-owner key fetched from <em>macOS Keychain</em>. Subsequent calls hit the cached key.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~130 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">ConvDb("ryan").write</div>
+        <div class="tl-action">Insert into <code>messages</code> with <code>summary = NULL</code>. FTS5 trigger indexes the redacted body. Returns <code>row_id</code>.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~135 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">disk queue</div>
+        <div class="tl-action">Enqueue a summarise job. Reuses the existing memory-router disk queue with a new <code>conv-summarize/</code> prefix.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~140 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">httpx · POST Graphiti</div>
+        <div class="tl-action">Fire-and-forget episode with <code>group_id="flyn-ryan"</code>. The entity extractor runs server-side. Failure logs but does not block.</div>
+      </div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-time">~150 ms</div>
+      <div class="tl-content">
+        <div class="tl-actor">Return</div>
+        <div class="tl-action"><strong>200 OK</strong> bubbles back to the hook, which returns to openclaw. Openclaw continues its normal agent processing untouched.</div>
+      </div>
+    </div>
+
+    <div class="tl-row async-gap">
+      <div class="tl-time">Async</div>
+      <div class="tl-content">
+        <div class="tl-actor">Background worker · summarizer thread</div>
+        <div class="tl-action">Within 3–8 seconds, a worker pulls the job, calls Ollama, and writes the summary back. The FTS5 trigger updates the summary index. Job file is deleted.</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ────────── 11 DECISIONS ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ IV  ·  DECISIONS</div>
+    <div class="sec-title">
+      <h2>Eleven locked, <em>in order of stakes.</em></h2>
+      <p class="lede">Every architectural choice that constrains the rest of the design.</p>
+    </div>
+  </div>
+
+  <div class="decisions">
+    <div class="decision">
+      <div class="d-num">01<small>SCOPE</small></div>
+      <div class="d-body">
+        <h4>Extend memory-router</h4>
+        <p>Conversation lives <em>inside</em> the existing service as a new tier. No new daemon, no new port, no new launchd unit.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">02<small>SLICE</small></div>
+      <div class="d-body">
+        <h4>Telegram first</h4>
+        <p>Prove the architecture on one channel. WA, iMessage, email are separate small hooks added later atop the same conv tier.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">03<small>TENANCY</small></div>
+      <div class="d-body">
+        <h4>Per-owner physical isolation</h4>
+        <p>Each owner gets <code>~/.flyn/memory-router/conv/&lt;owner&gt;.db</code>. Cross-owner reads require an explicit grant; audit-logged.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">04<small>SCHEMA</small></div>
+      <div class="d-body">
+        <h4>Raw + parsed + summary</h4>
+        <p>Three columns per message. Encrypted raw for replay, redacted body for FTS5, Gemma summary for token-efficient retrieval.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">05<small>CADENCE</small></div>
+      <div class="d-body">
+        <h4>Async summariser</h4>
+        <p>Ingest returns <code>200</code> immediately with <code>summary = NULL</code>. A background worker fills the summary within ~5 s.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">06<small>GRAPH</small></div>
+      <div class="d-body">
+        <h4>Every message &rarr; Graphiti</h4>
+        <p>Entity extraction is free if we promote each message as an episode. Cross-channel "when did X happen" becomes a graph query.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">07<small>SECRECY</small></div>
+      <div class="d-body">
+        <h4>AES-GCM encrypted raw</h4>
+        <p>Per-owner key in macOS Keychain. Raw is only decryptable via <code>flyn-mem conv replay</code> — no REST endpoint surfaces it.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">08<small>RETRIEVAL</small></div>
+      <div class="d-body">
+        <h4>conv_read · 11th adapter</h4>
+        <p>Plugs into the existing query fan-out. RRF merges it with the other ten sources for cross-system answers.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">09<small>INGRESS</small></div>
+      <div class="d-body">
+        <h4>OpenClaw internal hook</h4>
+        <p><code>flyn-conv-memory-tap</code> fires on every inbound Telegram message and POSTs to <code>:8400/api/memory/ingest</code>.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">10<small>STRUCTURE</small></div>
+      <div class="d-body">
+        <h4>Dedicated <code>conv/</code> module</h4>
+        <p>Storage, owner, encryption, summariser each in their own file. ≤ 200 lines apiece. Easy to retire later.</p>
+      </div>
+    </div>
+    <div class="decision">
+      <div class="d-num">11<small>QUALITY</small></div>
+      <div class="d-body">
+        <h4>18 tests + live smoke</h4>
+        <p>Security-sensitive code gets full TDD. Everything else verified by a real Telegram message to <code>@flyn_4c_bot</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── COMPONENTS ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ V  ·  COMPONENTS</div>
+    <div class="sec-title">
+      <h2>Six new modules, <em>each with one clear job.</em></h2>
+      <p class="lede">All under <code>flyn_memory_router/conv/</code> or <code>adapters/</code>. Each ≤ 200 lines.</p>
+    </div>
+  </div>
+
+  <div class="components">
+    <div class="comp-card">
+      <div class="file-size">≤ 200 LOC</div>
+      <div class="c-tag">CONV / 01</div>
+      <h4>schema.py</h4>
+      <p>SQLite tables + FTS5 + triggers for a single owner's conversation database.</p>
+      <ul>
+        <li>messages (id, ts, body, summary, encrypted_raw)</li>
+        <li>messages_fts (body, summary)</li>
+        <li>idx on thread_id, sender_id</li>
+        <li>WAL · idempotent migrations</li>
+      </ul>
+    </div>
+    <div class="comp-card">
+      <div class="file-size">≤ 150 LOC</div>
+      <div class="c-tag">CONV / 02</div>
+      <h4>owner.py</h4>
+      <p>Registry, grants, audit log. The chokepoint for who-sees-what.</p>
+      <ul>
+        <li>resolve_from_chat → Owner</li>
+        <li>viewer_can_read · default-deny</li>
+        <li>grant / revoke (audit-logged)</li>
+        <li>list_accessible_owners</li>
+      </ul>
+    </div>
+    <div class="comp-card">
+      <div class="file-size">≤ 150 LOC</div>
+      <div class="c-tag">CONV / 03</div>
+      <h4>encrypted_raw.py</h4>
+      <p>Per-owner AES-GCM. Keys live in macOS Keychain, never on disk.</p>
+      <ul>
+        <li>seal / unseal · 12-byte nonce</li>
+        <li>KeychainLocked · explicit failure</li>
+        <li>Tamper detection via auth tag</li>
+        <li>No REST surface — CLI only</li>
+      </ul>
+    </div>
+    <div class="comp-card">
+      <div class="file-size">≤ 150 LOC</div>
+      <div class="c-tag">CONV / 04</div>
+      <h4>summarizer.py</h4>
+      <p>Worker thread polling a disk queue. Calls Ollama, writes summary back.</p>
+      <ul>
+        <li>gemma4:e4b · 30 s timeout</li>
+        <li>1 s busy poll · 10 s idle poll</li>
+        <li>Backlog visible via flyn-mem conv health</li>
+        <li>Daily backfill pulse</li>
+      </ul>
+    </div>
+    <div class="comp-card">
+      <div class="file-size">≤ 200 LOC</div>
+      <div class="c-tag">ADAPTER / 01</div>
+      <h4>conv_write.py</h4>
+      <p>The five-step write sequence. Implements existing MemoryAdapter protocol.</p>
+      <ul>
+        <li>owner.resolve → encrypted_raw.seal</li>
+        <li>ConvDb.write → enqueue → Graphiti POST</li>
+        <li>All steps fail-open as WriteResult</li>
+        <li>Never raises to the ingest pipeline</li>
+      </ul>
+    </div>
+    <div class="comp-card">
+      <div class="file-size">≤ 200 LOC</div>
+      <div class="c-tag">ADAPTER / 02</div>
+      <h4>conv_read.py</h4>
+      <p>11th adapter in the existing query fan-out. FTS5 over body + summary.</p>
+      <ul>
+        <li>Resolves viewer from $USER</li>
+        <li>Queries each accessible owner's db</li>
+        <li>Cross-owner reads write audit</li>
+        <li>Default-included in flyn-mem query</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── SCHEMA ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ VI  ·  SCHEMA</div>
+    <div class="sec-title">
+      <h2>Three tables. <em>That is the whole tenancy story.</em></h2>
+      <p class="lede">Per-owner conv databases hold messages. A shared owners.db holds the access model.</p>
+    </div>
+  </div>
+
+  <div class="schema-grid">
+    <div class="sql-table">
+      <div class="t-head">
+        messages
+        <span class="badge">PER-OWNER</span>
+      </div>
+      <div class="t-rows">
+        <div class="row pk"><div class="field">id</div><div class="type">integer</div></div>
+        <div class="row"><div class="field">channel</div><div class="type">text not null</div></div>
+        <div class="row"><div class="field">sender_id</div><div class="type">text not null</div></div>
+        <div class="row"><div class="field">thread_id</div><div class="type">text</div></div>
+        <div class="row fk"><div class="field">reply_to_id</div><div class="type">integer</div></div>
+        <div class="row"><div class="field">ts</div><div class="type">text · iso 8601</div></div>
+        <div class="row"><div class="field">body</div><div class="type">text · redacted</div></div>
+        <div class="row"><div class="field">attachments</div><div class="type">text · json</div></div>
+        <div class="row"><div class="field">summary</div><div class="type">text · nullable</div></div>
+        <div class="row encrypted"><div class="field">encrypted_raw</div><div class="type">blob · AES-GCM</div></div>
+      </div>
+    </div>
+    <div class="sql-table">
+      <div class="t-head">
+        owners
+        <span class="badge">SHARED</span>
+      </div>
+      <div class="t-rows">
+        <div class="row pk"><div class="field">id</div><div class="type">text</div></div>
+        <div class="row"><div class="field">display_name</div><div class="type">text</div></div>
+        <div class="row"><div class="field">principals_json</div><div class="type">text</div></div>
+      </div>
+      <div class="t-head" style="margin-top: 4px;">
+        grants
+        <span class="badge">SHARED</span>
+      </div>
+      <div class="t-rows">
+        <div class="row pk"><div class="field">viewer</div><div class="type">text</div></div>
+        <div class="row pk"><div class="field">owned_by</div><div class="type">text</div></div>
+        <div class="row"><div class="field">granted_at</div><div class="type">text</div></div>
+        <div class="row"><div class="field">granted_by</div><div class="type">text</div></div>
+      </div>
+    </div>
+    <div class="sql-table">
+      <div class="t-head">
+        audit_log
+        <span class="badge">APPEND-ONLY</span>
+      </div>
+      <div class="t-rows">
+        <div class="row pk"><div class="field">id</div><div class="type">integer</div></div>
+        <div class="row"><div class="field">ts</div><div class="type">text</div></div>
+        <div class="row"><div class="field">viewer</div><div class="type">text</div></div>
+        <div class="row"><div class="field">owned_by</div><div class="type">text</div></div>
+        <div class="row"><div class="field">op</div><div class="type">read / replay / grant</div></div>
+        <div class="row"><div class="field">q</div><div class="type">text · nullable</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── CLI ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ VII  ·  THE SURFACE</div>
+    <div class="sec-title">
+      <h2>How you actually <em>use this.</em></h2>
+      <p class="lede">One new subcommand cluster on the existing flyn-mem binary. No new CLI to learn.</p>
+    </div>
+  </div>
+
+  <div class="cli-block">
+<span class="prompt">$ </span><span class="cmd">flyn-mem conv health</span>
+<span class="out">  owner       messages   oldest_ts            newest_ts            backlog</span>
+<span class="out">  ryan        1247       2026-05-19 14:30Z    2026-05-19 18:42Z    3</span>
+
+<span class="pad"></span><span class="prompt">$ </span><span class="cmd">flyn-mem conv search</span> <span class="flag">"linear backlog"</span> <span class="flag">--since 7d --sender @beth</span>
+<span class="out">  3 hits in conv/telegram</span>
+<span class="out">  ┌ 2026-05-17 09:14 · beth@cora · thread tg-7434192034</span>
+<span class="out">  │   "We're stuck at 73/124 until the Linear plan lands…"</span>
+<span class="out">  └ summary: Beth flags Linear backlog blocking OL phase 2.</span>
+
+<span class="pad"></span><span class="prompt">$ </span><span class="cmd">flyn-mem conv thread</span> <span class="flag">tg-7434192034 --limit 5</span>
+<span class="out">  most recent 5 messages, oldest first…</span>
+
+<span class="pad"></span><span class="prompt">$ </span><span class="cmd">flyn-mem conv replay</span> <span class="flag">42 --owner ryan</span>     <span class="comment"># audit-logged</span>
+<span class="out">  { "channel": "telegram", "chat_id": 7191564227, "text": "…", "ts": "…" }</span>
+
+<span class="pad"></span><span class="prompt">$ </span><span class="cmd">flyn-mem query</span> <span class="flag">"what did Beth say about Linear?"</span>
+<span class="out">  fans across 11 adapters now · conv contributes via RRF</span>
+<span class="out">  top hits include conv/telegram alongside warm/graphiti, reference/wiki…</span>
+  </div>
+</section>
+
+<!-- ────────── PERFORMANCE ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ VIII  ·  PERFORMANCE &amp; FAILURE</div>
+    <div class="sec-title">
+      <h2>Budgets <em>and</em> how it breaks.</h2>
+      <p class="lede">Every path has a target. Every failure has a behaviour. Nothing crashes silently.</p>
+    </div>
+  </div>
+
+  <div class="perf-table">
+    <div class="pt-head">
+      <div>PATH</div>
+      <div>TARGET</div>
+      <div>NOTES</div>
+    </div>
+    <div class="pt-row">
+      <div class="label">Hook → ingest → 200 OK</div>
+      <div class="target">p95 &lt; 250 ms</div>
+      <div class="note">Section III walks ~150 ms. Headroom for Keychain cold-start on first message of the day.</div>
+    </div>
+    <div class="pt-row">
+      <div class="label">Summariser roundtrip</div>
+      <div class="target">3–8 s typical</div>
+      <div class="note">Asynchronous; never blocks the hook. Gemma cold-start adds a few seconds on the first message after idle eviction.</div>
+    </div>
+    <div class="pt-row">
+      <div class="label">conv_read.query</div>
+      <div class="target">p95 &lt; 20 ms</div>
+      <div class="note">FTS5 against local SQLite. Joined with the existing memory-router query budget.</div>
+    </div>
+    <div class="pt-row">
+      <div class="label">End-to-end query (all 11)</div>
+      <div class="target">p95 &lt; 500 ms</div>
+      <div class="note">Same cap as the existing /api/memory/query surface. The conv adapter is one of the cheapest.</div>
+    </div>
+  </div>
+
+  <div class="fail-block">
+    <div class="fail-card">
+      <div class="fail-title">Owner unresolvable</div>
+      <div class="fail-action">WriteResult(ok=false). Message <em>not</em> stored — no orphan owner data. Logged to conv-writes; counter exposed.</div>
+    </div>
+    <div class="fail-card">
+      <div class="fail-title">Keychain locked</div>
+      <div class="fail-action">Hook still acks 200 to openclaw. Message <em>not</em> stored unencrypted. Counter increments. Recovery: unlock Mac, resend.</div>
+    </div>
+    <div class="fail-card">
+      <div class="fail-title">Summariser timeout</div>
+      <div class="fail-action">Row keeps summary=NULL. Visible in conv health backlog. Auto-retried by the daily backfill pulse.</div>
+    </div>
+    <div class="fail-card">
+      <div class="fail-title">Graphiti POST fails</div>
+      <div class="fail-action">conv.db write still succeeded. Logged. Backfilled later by a lint job. Local retrieval unaffected.</div>
+    </div>
+    <div class="fail-card">
+      <div class="fail-title">FTS5 corruption</div>
+      <div class="fail-action">Read returns []. Source-error logged. Rebuildable via <code>flyn-mem conv rebuild</code>.</div>
+    </div>
+    <div class="fail-card">
+      <div class="fail-title">Disk full / 500 MB / owner</div>
+      <div class="fail-action">Health pulse warns. No auto-delete in slice 1. <code>flyn-mem conv archive --before</code> arrives in a future slice.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── SCOPE ────────── -->
+<section>
+  <div class="sec-marker">
+    <div class="roman">§ IX  ·  SCOPE</div>
+    <div class="sec-title">
+      <h2>What ships now, <em>what waits.</em></h2>
+      <p class="lede">Aggressive YAGNI. Anything not essential to "Flyn remembers Telegram" is in a later slice.</p>
+    </div>
+  </div>
+
+  <div class="scope-grid">
+    <div class="scope-col now">
+      <h3><span class="acc">▶</span>  SLICE 1 — SHIPS NOW</h3>
+      <div class="tag">In scope</div>
+      <ul>
+        <li>Telegram inbound capture<small>via flyn-conv-memory-tap hook</small></li>
+        <li>Per-owner SQLite with FTS5<small>physical isolation, default-deny</small></li>
+        <li>AES-GCM encrypted raw payload<small>Keychain-backed key, CLI-only replay</small></li>
+        <li>Async summariser via Ollama<small>gemma4:e4b, disk-queue backed</small></li>
+        <li>Every message promoted to Graphiti<small>group_id=flyn-&lt;owner&gt;, fire-and-forget</small></li>
+        <li>conv_read in the existing fan-out<small>11th adapter, RRF-merged with the other ten</small></li>
+        <li>flyn-mem conv subcommand cluster<small>health, search, thread, replay, grant, revoke, rebuild</small></li>
+      </ul>
+    </div>
+    <div class="scope-col later">
+      <h3>SLICE 2+ — DEFERRED</h3>
+      <div class="tag">Out of scope</div>
+      <ul>
+        <li>Outbound message mirroring<small>Flyn's replies; small follow-up</small></li>
+        <li>WhatsApp via wacli.db<small>poller already populates locally</small></li>
+        <li>iMessage via BlueBubbles<small>separate hook, same conv tier</small></li>
+        <li>Email via Workspace OAuth<small>blocked on DNS + Workspace credentials</small></li>
+        <li>Cross-channel thread join<small>Telegram thread + email thread → one</small></li>
+        <li>Conversation → wiki auto-promotion<small>"asked 3 times → write entry" — lint category</small></li>
+        <li>Embedding-based semantic search<small>sqlite-vec over summaries; slice 2</small></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── FOOTER ────────── -->
+<footer class="foot">
+  <div>
+    <h5>DOCUMENT</h5>
+    <p>CM-01 · Telegram Slice 1</p>
+    <p>Rev. 2026-05-19</p>
+    <p>Status — awaiting Ryan review</p>
+    <p>668 lines (md) · ~1,400 LOC budget</p>
+  </div>
+  <div>
+    <h5>LINEAGE</h5>
+    <p>Supersedes 2026-04-30 standalone-service plan</p>
+    <p>Extends memory-router unified design (2026-05-16)</p>
+    <p>Originating session a259481b-…-3431f35b6d84</p>
+    <p>auto-memory note: project_conversation_memory.md</p>
+  </div>
+  <div>
+    <h5>NEXT</h5>
+    <p>① Ryan reviews this spec</p>
+    <p>② Invoke <a href="#">writing-plans</a> skill</p>
+    <p>③ Plan → tasks → subagent build</p>
+    <p>④ Live smoke against <a href="#">@flyn_4c_bot</a></p>
+    <p class="sig">R. Shuken + Claude Opus 4.7</p>
+  </div>
+</footer>
+
+</div><!-- /page -->
+
+<script>
+// subtle reveal on scroll for sections (not the hero, that has its own load animation)
+const reveal = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.style.opacity = '1';
+      e.target.style.transform = 'translateY(0)';
+      reveal.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.08, rootMargin: '0px 0px -60px 0px' });
+
+document.querySelectorAll('section').forEach((sec, i) => {
+  sec.style.opacity = '0';
+  sec.style.transform = 'translateY(18px)';
+  sec.style.transition = 'opacity 0.8s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.8s cubic-bezier(0.2, 0.65, 0.3, 1)';
+  reveal.observe(sec);
+});
+</script>
+
+</body>
+</html>
