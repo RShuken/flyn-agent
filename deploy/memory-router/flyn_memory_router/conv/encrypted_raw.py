@@ -62,11 +62,16 @@ def _get_key(owner_id: str) -> bytes:
 
     if result.returncode == 0:
         key_str = result.stdout.strip()
-        # find-generic-password -w prints the password as plain text. We store hex; decode it.
-        if all(c in "0123456789abcdef" for c in key_str) and len(key_str) == 32:
-            return bytes.fromhex(key_str)
-        # Fallback: treat as raw text, pad/truncate to 16 bytes
-        return key_str.encode("utf-8")[:16].ljust(16, b"\0")
+        # Strictly require the stored value to be 32 lowercase hex chars (= 128-bit key).
+        # If a stale Keychain entry has the wrong format, fail loudly — silently
+        # padding to 16 bytes would produce a weak / zero-padded key.
+        if len(key_str) != 32 or not all(c in "0123456789abcdef" for c in key_str):
+            raise KeychainLocked(
+                f"Keychain entry for {service} has unexpected format "
+                f"(got {len(key_str)} chars; expected 32 lowercase hex). "
+                f"Delete the entry with `security delete-generic-password -s {service} -a {KEYCHAIN_ACCOUNT}` and rerun."
+            )
+        return bytes.fromhex(key_str)
 
     # Not found — create a new 16-byte key
     new_key = os.urandom(16)

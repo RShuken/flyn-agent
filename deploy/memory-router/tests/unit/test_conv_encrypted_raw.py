@@ -56,3 +56,21 @@ def test_tamper_detection(monkeypatch):
     tampered = sealed[:14] + bytes([sealed[14] ^ 0x01]) + sealed[15:]
     with pytest.raises(Exception):
         encrypted_raw.unseal(tampered, "ryan")
+
+
+def test_get_key_rejects_short_keychain_value(monkeypatch):
+    """If `security` returns a non-hex value (e.g. someone set it manually),
+    raise KeychainLocked rather than silently producing a weak key."""
+    from flyn_memory_router.conv import encrypted_raw
+    import subprocess
+
+    class FakeResult:
+        returncode = 0
+        stdout = "not-hex-and-too-short\n"
+        stderr = ""
+
+    monkeypatch.setattr(encrypted_raw.subprocess, "run",
+                        lambda *a, **kw: FakeResult())
+    encrypted_raw._get_key.cache_clear()
+    with pytest.raises(encrypted_raw.KeychainLocked, match="unexpected format"):
+        encrypted_raw.seal(b"x", "ryan-bad-fmt-test")
