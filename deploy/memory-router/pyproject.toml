@@ -17,6 +17,7 @@ dependencies = [
   "httpx>=0.27",
   "slowapi>=0.1.9",
   "pyyaml>=6.0",
+  "cryptography>=42.0",
 ]
 
 [project.scripts]
