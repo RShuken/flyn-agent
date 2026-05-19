@@ -144,6 +144,29 @@ class TestOllamaBackend:
         assert result.confidence == 0.0
         assert "OSError" in result.reason
 
+    def test_ollama_backend_demotes_timeout_to_debug(self, caplog):
+        """Timeouts are transient on busy hardware; demoted from warn → debug to
+        prevent log spam. Verdict still defaults to FINE."""
+        import socket
+        with patch("urllib.request.urlopen", side_effect=socket.timeout("read timed out")):
+            backend = OllamaTriageBackend()
+            with caplog.at_level("DEBUG", logger="flyn_orchestrator.watchdog"):
+                result = backend.classify("tail", "intent", 30.0)
+
+        assert result.verdict == "FINE"
+        assert result.confidence == 0.0
+        assert result.reason == "triage backend timeout"
+
+        # Should have a DEBUG record, NOT a WARNING
+        warn_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not warn_records, f"timeouts should not emit WARNING logs: {warn_records}"
+
+    def test_ollama_backend_default_timeout_is_30_seconds(self):
+        """Default timeout bumped from 8s → 30s to handle gemma4:e4b cold-start
+        on Apple Silicon; eliminates the steady-state timeout warnings."""
+        backend = OllamaTriageBackend()
+        assert backend._timeout == 30.0
+
     def test_ollama_backend_falls_back_to_fine_on_json_parse_error(self):
         """Malformed JSON from Ollama also defaults to FINE."""
         fake_body = json.dumps({"response": "not json at all {{{"}).encode()

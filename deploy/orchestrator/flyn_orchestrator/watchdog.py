@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 import time
 import urllib.request
@@ -92,7 +93,7 @@ class OllamaTriageBackend:
         self,
         url: str = DEFAULT_OLLAMA_URL,
         model: str = DEFAULT_TRIAGE_MODEL,
-        timeout: float = 8.0,
+        timeout: float = 30.0,
     ) -> None:
         self._url = url
         self._model = model
@@ -136,7 +137,22 @@ class OllamaTriageBackend:
                 reason=parsed.get("reason", ""),
                 confidence=0.7,
             )
+        except (socket.timeout, TimeoutError) as exc:
+            # Transient: ollama was slow but is alive. Demote to debug so we don't
+            # spam warn-level logs on every triage. The verdict still defaults to FINE
+            # which is the safe choice (don't halt a worker on triage flakiness).
+            logger.debug(
+                "watchdog: ollama triage timed out after %.1fs; defaulting to FINE",
+                self._timeout,
+            )
+            return TriageResult(
+                verdict="FINE",
+                reason="triage backend timeout",
+                confidence=0.0,
+            )
         except Exception as exc:
+            # Real backend error (e.g. ollama not running, malformed response).
+            # Keep at warn so it surfaces in logs and is debuggable.
             logger.warning(
                 "watchdog: ollama triage failed (%s); defaulting to FINE",
                 exc,
