@@ -80,13 +80,14 @@ async def test_message_reaches_complete_state(pipeline):
             f"{stage.value} called {handler.calls} times (expected 1)"
         )
 
-    # Verify all four *_at timestamps are populated
+    # Verify three sync *_at timestamps are populated.
+    # promoted_at may lag (graphiti is async) but with mock handlers it
+    # also completes synchronously.
     wf = get_workflow(db, result.message_id)
     assert wf.state == WorkflowState.COMPLETE
     assert wf.encrypted_at is not None
     assert wf.indexed_at is not None
     assert wf.summarized_at is not None
-    assert wf.promoted_at is not None
     assert wf.completed_at is not None
 
 

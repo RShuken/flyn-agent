@@ -161,7 +161,12 @@ def advance_stage(
                 (now, message_id),
             )
 
-        # Step 2: try to flip to COMPLETE if all four *_at are now set
+        # Step 2: try to flip to COMPLETE if encrypt+index+summarize are done.
+        # Promote (Graphiti POST) is best-effort and async — Graphiti runs
+        # synchronous LLM-based entity extraction that can take minutes.
+        # Blocking COMPLETE on it would tie our e2e p99 to Graphiti's p99,
+        # which is out of pipeline control. promoted_at still gets set
+        # when Graphiti eventually returns, for observability + dedup.
         conn.execute(
             "UPDATE conversation_workflow "
             "   SET state = 'complete', "
@@ -170,8 +175,7 @@ def advance_stage(
             "   AND state NOT IN ('complete', 'failed') "
             "   AND encrypted_at IS NOT NULL "
             "   AND indexed_at IS NOT NULL "
-            "   AND summarized_at IS NOT NULL "
-            "   AND promoted_at IS NOT NULL",
+            "   AND summarized_at IS NOT NULL",
             (now, message_id),
         )
 

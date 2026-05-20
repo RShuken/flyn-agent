@@ -44,13 +44,17 @@ def test_create_workflow_is_idempotent(db: Path):
 
 
 def test_advance_through_full_pipeline_to_complete(db: Path):
-    """A message advancing through all four stages reaches COMPLETE."""
+    """A message advancing through encrypt+index+summarize reaches COMPLETE.
+
+    Promote is best-effort/async (Graphiti runs synchronous LLM entity
+    extraction at multi-minute latencies; blocking COMPLETE on it would
+    tie pipeline e2e p99 to Graphiti's p99). promoted_at still gets set
+    when Graphiti eventually returns, for observability + dedup."""
     create_workflow(db, message_id=1, trace_id="tr-1")
     assert advance_stage(db, 1, Stage.ENCRYPT) == WorkflowState.ENCRYPTED
     assert advance_stage(db, 1, Stage.INDEX) == WorkflowState.INDEXED
-    assert advance_stage(db, 1, Stage.SUMMARIZE) == WorkflowState.SUMMARIZED
-    # PROMOTE is the last; once its *_at is set + all others, state flips to COMPLETE
-    result = advance_stage(db, 1, Stage.PROMOTE)
+    # SUMMARIZE completes the synchronous chain → COMPLETE
+    result = advance_stage(db, 1, Stage.SUMMARIZE)
     assert result == WorkflowState.COMPLETE
 
     row = get_workflow(db, 1)
@@ -58,6 +62,10 @@ def test_advance_through_full_pipeline_to_complete(db: Path):
     assert row.encrypted_at is not None
     assert row.indexed_at is not None
     assert row.summarized_at is not None
+    # promoted_at can be None at this point — promote is async/best-effort
+    # Calling advance_stage(PROMOTE) later still works idempotently:
+    advance_stage(db, 1, Stage.PROMOTE)
+    row = get_workflow(db, 1)
     assert row.promoted_at is not None
 
 
