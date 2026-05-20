@@ -47,6 +47,21 @@ class Config:
     def captures_index(self) -> Path:
         return self.home / "captures_index.jsonl"
 
+    @property
+    def conv2_root(self) -> Path:
+        """Conv-tier 2.0 per-owner DBs root. Separate from v1's conv/ during
+        shadow-mode rollout."""
+        env = os.environ.get("FLYN_CONV2_ROOT")
+        if env:
+            return Path(env)
+        return self.home / "conv2"
+
+    @property
+    def conv2_shadow_mode(self) -> bool:
+        """When True, /api/memory/ingest writes to BOTH v1 conv and v2 conv2
+        for output comparison. Default: True during migration period."""
+        return os.environ.get("FLYN_CONV2_SHADOW", "true").lower() == "true"
+
     @classmethod
     def from_env(cls) -> "Config":
         home_env = Path.home() / ".flyn" / "memory-router"

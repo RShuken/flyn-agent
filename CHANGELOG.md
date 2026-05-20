@@ -10,6 +10,51 @@ Pending work — see `RESUME-HERE.md` "Phase 6/7 remaining buildable-without-blo
 
 ---
 
+## [PR conv-tier-2.0] 2026-05-19 — Conv-Tier 2.0: workflow state machine + async pipeline
+
+### Added
+- `conv2/` module — principled rebuild of conversation memory pipeline:
+  - `state.py` — WorkflowState + Stage enums + ALLOWED_TRANSITIONS table; linear DAG (received → encrypted → indexed → summarized → promoted → complete).
+  - `schema.py` — adds conversation_workflow, work_queue, dead_letter_queue, schema_version tables; idempotent migrate() backfills workflow rows for existing v1 messages.
+  - `workflow.py` — atomic advance_stage / record_failure / find_stuck helpers; every state transition is one SQL statement.
+  - `work_queue.py` — durable async queue (asyncio + SQLite-backed). Atomic claim via UPDATE...WHERE id=(SELECT...) RETURNING. Pickup latency < 50ms (verified by SLO test). reclaim_stale on startup recovers in-flight claims from previous crash.
+  - `worker.py` — generic worker loop; per-stage handlers via StageHandler Protocol. Exponential backoff per stage. Metrics class records p50/p99 latency histograms.
+  - `supervisor.py` — WorkerPool spawns N workers per stage, auto-restarts on crash, graceful shutdown with drain.
+  - `handlers/` — real implementations: AES-GCM seal, FTS5 index, Ollama summarize (with short-circuit < 80 chars), Graphiti episode POST with idempotency UUID.
+  - `ingest.py` — atomic write of messages + workflow + first-stage enqueue; trace_id generated and propagated through every log line.
+  - `backpressure.py` — HIGH_WATER + reject_new / drop_oldest / drop_newest policy; emits overload signal in /health.
+  - `health.py` — /api/memory/conv/health and /api/memory/conv/metrics (Prometheus text format).
+  - `logging_setup.py` — StructuredFormatter emits JSON-per-line with trace_id, stage, duration_ms, outcome.
+  - `routes.py` — FastAPI routes mounted on the main app: /api/memory/v2/ingest + /api/memory/conv/health + /api/memory/conv/metrics.
+
+### Changed
+- `server.py` — mounts conv2 routes + starts/stops Conv2Service on app lifecycle. Shadow-mode: v2 runs alongside v1 conv tier.
+- `config.py` — adds conv2_root + conv2_shadow_mode properties.
+
+### SLOs (per design doc)
+- p50 e2e < 2s (vs. measured 9.1s on v1)
+- p99 e2e < 5s
+- Drop rate < 0.1%
+- Stuck count = 0 after 24h soak
+
+### Test coverage
+- 97 new tests; full memory-router suite 254 passing (one timing flake when run alongside others; passes in isolation).
+- Coverage on pipeline core: 94–100% (workflow 100%, work_queue 100%, state 100%, health 100%, schema 94%, ingest 94%, backpressure 93%, worker 95%, supervisor 89%).
+- Property-based state-machine tests assert no undefined (stage × state) behavior.
+- Load test: 100 messages all reach COMPLETE in 0.8s on default config.
+- Chaos: crash recovery, supervisor restart, graceful shutdown drain.
+
+### Migration
+- v2 ships in shadow mode alongside v1 (PR #37). /api/memory/v2/ingest and /api/memory/ingest both work.
+- 24h soak with output sampling planned (see docs/superpowers/specs/2026-05-19-conv-tier-2.0-design.md §12).
+- Cutover after soak: flip plugin POST target to v2, monitor stuck count + dead-letter rate for 24h, then remove v1 paths.
+
+### References
+- Design spec: docs/superpowers/specs/2026-05-19-conv-tier-2.0-design.md
+- Rubric: deploy/outcomes/CONV-TIER-2.0-RUBRIC.md
+
+---
+
 ## [PR #29] 2026-05-18 — Daily heartbeat sweep for expired ops approvals
 
 ### Added

@@ -25,6 +25,7 @@ from .adapters.hot import HotMemoryMdAdapter
 from .adapters.lesson import LessonKnowledgeAdapter
 from .adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
 from .config import Config, READ_SOURCES
+from .conv2.routes import Conv2Service, mount_conv2_routes
 from .dedup import DedupStore
 from .health_tracker import TRACKER
 from .logging_contract import gc_logs
@@ -101,6 +102,11 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     app = FastAPI(title="flyn-memory-router", version="0.1.0")
 
+    # Conv-tier 2.0 service (shadow-mode alongside v1)
+    conv2_service = Conv2Service(conv2_root=cfg.conv2_root, owner_id="ryan")
+    mount_conv2_routes(app, conv2_service)
+    app.state.conv2_service = conv2_service
+
     @app.on_event("startup")
     async def _schedule_daily_gc():
         async def _loop():
@@ -113,6 +119,23 @@ def build_app(http_client: Any | None = None) -> FastAPI:
                     pass
         import asyncio
         asyncio.create_task(_loop())
+
+    @app.on_event("startup")
+    async def _start_conv2():
+        try:
+            await conv2_service.start()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                "conv2 service failed to start: %s", exc
+            )
+
+    @app.on_event("shutdown")
+    async def _stop_conv2():
+        try:
+            await conv2_service.stop()
+        except Exception:
+            pass
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
