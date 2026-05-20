@@ -14,9 +14,10 @@ class Tier(str, Enum):
     COOL = "cool"
     COLD = "cold"
     LESSON = "lesson"
+    CONV = "conv"
 
 
-Importance = Literal["hot", "warm", "cool", "cold", "lesson"]
+Importance = Literal["hot", "warm", "cool", "cold", "lesson", "conv"]
 
 
 class InboundEvent(BaseModel):

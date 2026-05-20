@@ -20,11 +20,15 @@ from . import lint as lint_module
 from . import query as query_module
 from .adapters import AdapterRegistry
 from .adapters.cold import ColdCapturesIndexAdapter
+from .adapters.conv_read import ConvReadAdapter
+from .adapters.conv_write import ConvWriteAdapter
 from .adapters.cool import CoolDailyRollupAdapter
 from .adapters.hot import HotMemoryMdAdapter
 from .adapters.lesson import LessonKnowledgeAdapter
 from .adapters.warm import WarmGraphitiAdapter, WarmWorkspaceFileAdapter
 from .config import Config, READ_SOURCES
+from .conv.owner import OwnerRegistry
+from .conv.summarizer import SummarizerWorker
 from .dedup import DedupStore
 from .health_tracker import TRACKER
 from .logging_contract import gc_logs
@@ -97,6 +101,25 @@ def build_app(http_client: Any | None = None) -> FastAPI:
     # a Graphiti episode (event_type "lesson-learned"). Wire warm_gr under Tier.LESSON in Phase 1.
     registry.register(Tier.LESSON, lesson)
 
+    # --- Conversation tier (Telegram slice 1) ---
+    cfg.conv_root.mkdir(parents=True, exist_ok=True)
+    owner_registry = OwnerRegistry(
+        owners_db_path=cfg.conv_owners_db_path,
+        principals_json=cfg.principals_json_path,
+    )
+    conv_write_adapter = ConvWriteAdapter(
+        registry=owner_registry,
+        conv_root=cfg.conv_root,
+        queue_dir=cfg.queue_dir,
+        graphiti_url=cfg.graphiti_url,
+        http_client=http_client,
+    )
+    registry.register(Tier.CONV, conv_write_adapter)
+
+    # Async summarizer worker — pulls jobs from queue, calls Ollama
+    summarizer = SummarizerWorker(queue_dir=cfg.queue_dir)
+    summarizer.start()
+
     router = Router(registry=registry, dedup=dedup)
 
     app = FastAPI(title="flyn-memory-router", version="0.1.0")
@@ -120,6 +143,15 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     @app.post("/api/memory/ingest", response_model=EventResult)
     def ingest(event: InboundEvent) -> EventResult:
+        if event.event_type == "conversation_message":
+            result = conv_write_adapter.write(event)
+            return EventResult(
+                accepted=result.ok,
+                deduped=False,
+                importance=event.importance or "warm",
+                tiers_written=[Tier.CONV] if result.ok else [],
+                notes=[result.detail] if result.detail else [],
+            )
         return router.ingest(event)
 
     @app.post("/api/memory/pin")
@@ -182,6 +214,7 @@ def build_app(http_client: Any | None = None) -> FastAPI:
 
     @app.get("/api/memory/sources")
     def sources_route() -> list[dict[str, Any]]:
+        from .config import CONV_READ_SOURCE
         out = []
         for name, rsc in READ_SOURCES.items():
             snap = TRACKER.snapshot(name)
@@ -192,6 +225,14 @@ def build_app(http_client: Any | None = None) -> FastAPI:
                 "timeout_s": rsc.timeout,
                 **snap,
             })
+        conv_snap = TRACKER.snapshot(CONV_READ_SOURCE.name)
+        out.append({
+            "name": CONV_READ_SOURCE.name,
+            "kind": "read",
+            "default_included": CONV_READ_SOURCE.default_included,
+            "timeout_s": CONV_READ_SOURCE.timeout,
+            **conv_snap,
+        })
         return out
 
     return app

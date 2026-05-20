@@ -47,6 +47,21 @@ class Config:
     def captures_index(self) -> Path:
         return self.home / "captures_index.jsonl"
 
+    @property
+    def conv_root(self) -> Path:
+        env = os.environ.get("FLYN_CONV_ROOT")
+        if env:
+            return Path(env)
+        return self.home / "conv"
+
+    @property
+    def principals_json_path(self) -> Path:
+        return self.conv_root / "principals.json"
+
+    @property
+    def conv_owners_db_path(self) -> Path:
+        return self.conv_root / "owners.db"
+
     @classmethod
     def from_env(cls) -> "Config":
         home_env = Path.home() / ".flyn" / "memory-router"
@@ -91,3 +106,13 @@ READ_SOURCES: dict[str, ReadSourceConfig] = {
     "ocw_mem":   ReadSourceConfig(name="ocw_mem",   cls_path="flyn_memory_router.adapters.ocw_mem_read:OCWMemRead",      timeout=3.0, default_included=False),
     "lossless":  ReadSourceConfig(name="lossless",  cls_path="flyn_memory_router.adapters.lossless_read:LosslessRead",   timeout=3.0, default_included=False),
 }
+# NOTE: the conv adapter is NOT in READ_SOURCES because its constructor needs
+# an OwnerRegistry + conv_root, which the static cls_path loader can't provide.
+# It is registered manually in query.py's _load_adapters and surfaced manually
+# in server.py's /api/memory/sources route.
+CONV_READ_SOURCE = ReadSourceConfig(
+    name="conv",
+    cls_path="flyn_memory_router.adapters.conv_read:ConvReadAdapter",
+    timeout=1.5,
+    default_included=True,
+)

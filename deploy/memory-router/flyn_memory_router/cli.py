@@ -140,6 +140,100 @@ def _cmd_sources(args, client_factory) -> int:
     return 0
 
 
+def _cmd_conv(args, client_factory=None) -> int:
+    """Dispatch `flyn-mem conv <subcmd>`."""
+    from .config import Config
+    from .conv.owner import OwnerRegistry
+    from .conv import encrypted_raw
+
+    cfg = Config.from_env()
+    registry = OwnerRegistry(cfg.conv_owners_db_path, cfg.principals_json_path)
+    viewer = os.environ.get("USER", "ryan")
+
+    if args.conv_cmd == "health":
+        return _conv_health(cfg, registry, viewer)
+    if args.conv_cmd == "search":
+        return _conv_search(cfg, registry, viewer, args)
+    if args.conv_cmd == "thread":
+        return _conv_thread(cfg, registry, viewer, args)
+    if args.conv_cmd == "replay":
+        return _conv_replay(cfg, registry, viewer, args, encrypted_raw)
+    print(f"unknown conv subcommand: {args.conv_cmd}", file=sys.stderr)
+    return 2
+
+
+def _conv_health(cfg, registry, viewer) -> int:
+    from .conv.schema import ConvDb
+    print(f"{'owner':<12} {'messages':<10} {'oldest_ts':<22} {'newest_ts':<22} {'backlog':<8}")
+    for owner_id in sorted(registry.list_accessible_owners(viewer)):
+        db_path = registry.db_path_for(owner_id, cfg.conv_root)
+        if not db_path.exists():
+            print(f"{owner_id:<12} {'0':<10} {'-':<22} {'-':<22} {'-':<8}")
+            continue
+        stats = ConvDb(owner_id, db_path).stats()
+        print(f"{owner_id:<12} {stats['messages']:<10} {stats['oldest_ts'] or '-':<22} "
+              f"{stats['newest_ts'] or '-':<22} {stats['summary_backlog']:<8}")
+    return 0
+
+
+def _conv_search(cfg, registry, viewer, args) -> int:
+    from .conv.schema import ConvDb
+    owners = [args.owner] if args.owner else sorted(registry.list_accessible_owners(viewer))
+    n = 0
+    for owner_id in owners:
+        db_path = registry.db_path_for(owner_id, cfg.conv_root)
+        if not db_path.exists():
+            continue
+        for hit in ConvDb(owner_id, db_path).search(args.q, top_k=args.top):
+            n += 1
+            print(f"\n┌ {hit.ts} · {hit.sender_id} · {owner_id} · row {hit.row_id}")
+            print(f"│   {hit.body[:300]}")
+            if hit.summary:
+                print(f"└ summary: {hit.summary}")
+            else:
+                print(f"└ summary: (pending)")
+        if owner_id != viewer:
+            registry.append_audit(viewer, owner_id, op="read", q=args.q)
+    print(f"\n{n} hits")
+    return 0
+
+
+def _conv_thread(cfg, registry, viewer, args) -> int:
+    from .conv.schema import ConvDb
+    owners = [args.owner] if args.owner else sorted(registry.list_accessible_owners(viewer))
+    for owner_id in owners:
+        db_path = registry.db_path_for(owner_id, cfg.conv_root)
+        if not db_path.exists():
+            continue
+        for msg in ConvDb(owner_id, db_path).get_by_thread(args.thread_id, limit=args.limit):
+            print(f"{msg.ts}  {msg.sender_id}: {msg.body[:200]}")
+    return 0
+
+
+def _conv_replay(cfg, registry, viewer, args, encrypted_raw) -> int:
+    from .conv.schema import ConvDb
+    owner = args.owner or viewer
+    if not registry.viewer_can_read(viewer, owner):
+        print(f"flyn-mem: viewer {viewer!r} lacks grant to read owner {owner!r}", file=sys.stderr)
+        return 3
+    db_path = registry.db_path_for(owner, cfg.conv_root)
+    if not db_path.exists():
+        print(f"flyn-mem: no DB for owner {owner!r}", file=sys.stderr)
+        return 1
+    msg = ConvDb(owner, db_path).get_by_id(args.row_id)
+    if msg is None:
+        print(f"flyn-mem: no row {args.row_id} in owner {owner!r}", file=sys.stderr)
+        return 1
+    try:
+        plaintext = encrypted_raw.unseal(msg.encrypted_raw, owner)
+    except Exception as exc:
+        print(f"flyn-mem: unseal failed: {exc}", file=sys.stderr)
+        return 1
+    registry.append_audit(viewer, owner, op="replay", q=str(args.row_id))
+    print(plaintext.decode("utf-8", errors="replace"))
+    return 0
+
+
 def _cmd_ingest(args, client_factory) -> int:
     try:
         payload = json.loads(args.event_json)
@@ -185,6 +279,27 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--grep", default=None)
     lg.add_argument("--errors", action="store_true")
     lg.add_argument("--tail", type=int, default=20)
+
+    # conv subcommand cluster (Telegram slice 1)
+    conv_p = sub.add_parser("conv", help="Conversation tier (Telegram messages)")
+    conv_sub = conv_p.add_subparsers(dest="conv_cmd", required=True)
+
+    conv_sub.add_parser("health", help="Per-owner DB stats")
+
+    s = conv_sub.add_parser("search", help="FTS5 search in conv DBs")
+    s.add_argument("q", help="search text")
+    s.add_argument("--top", type=int, default=10)
+    s.add_argument("--owner", default=None)
+
+    t = conv_sub.add_parser("thread", help="Dump a thread's recent messages")
+    t.add_argument("thread_id")
+    t.add_argument("--limit", type=int, default=20)
+    t.add_argument("--owner", default=None)
+
+    r = conv_sub.add_parser("replay", help="Decrypt + print raw payload (audit-logged)")
+    r.add_argument("row_id", type=int)
+    r.add_argument("--owner", default=None)
+
     return p
 
 
@@ -199,6 +314,7 @@ def main(argv: list[str] | None = None,
         "sources": _cmd_sources,
         "ingest": _cmd_ingest,
         "logs": _cmd_logs,
+        "conv": _cmd_conv,
     }
     fn = dispatch.get(args.cmd)
     if fn is None:
