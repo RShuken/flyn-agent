@@ -12,11 +12,15 @@ KeychainLocked — the caller (conv_write adapter) treats this as a hard
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from functools import lru_cache
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = logging.getLogger(__name__)
 
 KEYCHAIN_SERVICE_PREFIX = "flyn-conv-memory"
 KEYCHAIN_ACCOUNT = "aes-key"
@@ -37,11 +41,23 @@ def seal(plaintext: bytes, owner_id: str) -> bytes:
 
 
 def unseal(ciphertext: bytes, owner_id: str) -> bytes:
-    """Decrypt. Raises cryptography.exceptions.InvalidTag on tamper/wrong key."""
-    key = _get_key(owner_id)
-    aes = AESGCM(key)
+    """Decrypt. Raises cryptography.exceptions.InvalidTag on tamper/wrong key.
+
+    Self-heals against Keychain rotation: if the cached key fails with
+    InvalidTag, clear the cache, fetch a fresh key from Keychain, and retry
+    once. Without this, rotating the Keychain entry would silently break
+    every decrypt until the process is restarted.
+    """
     nonce, ct = ciphertext[:12], ciphertext[12:]
-    return aes.decrypt(nonce, ct, associated_data=None)
+    try:
+        aes = AESGCM(_get_key(owner_id))
+        return aes.decrypt(nonce, ct, associated_data=None)
+    except InvalidTag:
+        logger.info("conv.unseal: cached key failed for %s, retrying with fresh Keychain read", owner_id)
+        if hasattr(_get_key, "cache_clear"):
+            _get_key.cache_clear()
+        aes = AESGCM(_get_key(owner_id))
+        return aes.decrypt(nonce, ct, associated_data=None)
 
 
 @lru_cache(maxsize=8)
