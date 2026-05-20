@@ -37,19 +37,22 @@ class Stage(str, Enum):
 # "from" states to the resulting "to" state. The state machine is a DAG
 # (no cycles) with a single COMPLETE absorbing state. FAILED is a sink
 # from any non-terminal state when retries are exhausted.
+# Linear pipeline: received → encrypted → indexed → summarized → promoted → complete.
+# Concurrency comes from running multiple workers WITHIN a stage (configurable),
+# not from running stages in parallel. This keeps the state machine simple +
+# deterministic without sacrificing throughput.
 ALLOWED_TRANSITIONS: dict[Stage, dict[FrozenSet[WorkflowState], WorkflowState]] = {
     Stage.ENCRYPT: {
         frozenset({WorkflowState.RECEIVED}): WorkflowState.ENCRYPTED,
     },
     Stage.INDEX: {
-        frozenset({WorkflowState.RECEIVED, WorkflowState.ENCRYPTED}): WorkflowState.INDEXED,
+        frozenset({WorkflowState.ENCRYPTED}): WorkflowState.INDEXED,
     },
     Stage.SUMMARIZE: {
-        frozenset({WorkflowState.ENCRYPTED, WorkflowState.INDEXED}): WorkflowState.SUMMARIZED,
+        frozenset({WorkflowState.INDEXED}): WorkflowState.SUMMARIZED,
     },
     Stage.PROMOTE: {
-        frozenset({WorkflowState.ENCRYPTED, WorkflowState.INDEXED, WorkflowState.SUMMARIZED}):
-            WorkflowState.PROMOTED,
+        frozenset({WorkflowState.SUMMARIZED}): WorkflowState.PROMOTED,
     },
 }
 

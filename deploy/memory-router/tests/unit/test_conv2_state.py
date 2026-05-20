@@ -48,23 +48,24 @@ def test_encrypt_only_from_received():
     assert next_state(Stage.ENCRYPT, WorkflowState.RECEIVED) == WorkflowState.ENCRYPTED
 
 
-def test_index_runs_from_received_or_encrypted():
-    """Index can run in parallel with encrypt."""
-    assert can_transition(Stage.INDEX, WorkflowState.RECEIVED)
+def test_index_runs_only_from_encrypted():
+    """Linear pipeline: index runs after encrypt completes."""
     assert can_transition(Stage.INDEX, WorkflowState.ENCRYPTED)
-    assert next_state(Stage.INDEX, WorkflowState.RECEIVED) == WorkflowState.INDEXED
+    assert not can_transition(Stage.INDEX, WorkflowState.RECEIVED)
+    assert next_state(Stage.INDEX, WorkflowState.ENCRYPTED) == WorkflowState.INDEXED
 
 
-def test_summarize_requires_encrypt_or_index():
-    """Summarize can't run before encryption (needs body access via decrypt path)."""
-    assert can_transition(Stage.SUMMARIZE, WorkflowState.ENCRYPTED)
+def test_summarize_runs_only_from_indexed():
+    """Linear pipeline: summarize runs after index completes."""
     assert can_transition(Stage.SUMMARIZE, WorkflowState.INDEXED)
+    assert not can_transition(Stage.SUMMARIZE, WorkflowState.ENCRYPTED)
     assert not can_transition(Stage.SUMMARIZE, WorkflowState.RECEIVED)
 
 
-def test_promote_requires_prerequisites():
-    """Promote requires at least encrypt + index + summarize prerequisites met."""
+def test_promote_runs_only_from_summarized():
+    """Linear pipeline: promote runs only after summarize completes."""
     assert can_transition(Stage.PROMOTE, WorkflowState.SUMMARIZED)
+    assert not can_transition(Stage.PROMOTE, WorkflowState.INDEXED)
     assert not can_transition(Stage.PROMOTE, WorkflowState.RECEIVED)
 
 

@@ -28,7 +28,42 @@ SCHEMA_VERSION = 1
 
 # DDL — strictly additive, never DROP. All CREATEs are IF NOT EXISTS so
 # the migration can re-run safely.
+#
+# Includes the v1 `messages` table definition so v2 can run standalone
+# without depending on a prior v1 install. When v1 is already present,
+# the IF NOT EXISTS clauses make this a no-op.
 _DDL = """
+CREATE TABLE IF NOT EXISTS messages (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel       TEXT NOT NULL,
+    sender_id     TEXT NOT NULL,
+    thread_id     TEXT,
+    reply_to_id   INTEGER,
+    ts            TEXT NOT NULL,
+    body          TEXT NOT NULL,
+    attachments   TEXT,
+    summary       TEXT,
+    encrypted_raw BLOB NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    body, summary, content=messages, content_rowid=id
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_thread_ts ON messages(thread_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_ts ON messages(sender_id, ts DESC);
+
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, body, summary)
+      VALUES (new.id, new.body, COALESCE(new.summary, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, body, summary)
+      VALUES('delete', old.id, old.body, COALESCE(old.summary, ''));
+    INSERT INTO messages_fts(rowid, body, summary)
+      VALUES (new.id, new.body, COALESCE(new.summary, ''));
+END;
+
 CREATE TABLE IF NOT EXISTS conversation_workflow (
     message_id      INTEGER PRIMARY KEY,
     state           TEXT NOT NULL,
