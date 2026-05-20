@@ -97,14 +97,18 @@ async function forwardToRouter(
 
 function buildPayload(direction: "inbound" | "outbound", event: InternalHookEvent): Record<string, unknown> | null {
   const ctx = event.context ?? {};
-  // openclaw fills these from PluginHookMessageReceivedEvent / MessageSentEvent.
-  // We accept any of the common shapes since exact field names varied across
-  // openclaw versions; the receiver tolerates missing fields.
+  // openclaw's internal "message:received" hook context maps canonical sender
+  // identity into ctx.metadata.senderId (numeric Telegram chat_id for direct
+  // DMs). Top-level ctx.from is the display name and won't match principals.json.
+  // Confirmed via source: dist/message-hook-mappers-7jVKerRx.js#toInternalMessageReceivedContext
+  const metadata = (ctx.metadata as Record<string, unknown> | undefined) ?? {};
   const content = (ctx.content ?? ctx.body ?? ctx.text ?? "") as string;
   if (!content || typeof content !== "string") return null;
   const messageId = (ctx.messageId ?? ctx.message_id ?? "") as string;
-  const threadId = (ctx.threadId ?? ctx.thread_id ?? ctx.conversationId ?? event.sessionKey ?? "") as string;
-  const senderId = (ctx.senderId ?? ctx.from ?? ctx.sender_id ?? "") as string;
+  const threadId = (metadata.threadId ?? ctx.threadId ?? ctx.thread_id ?? ctx.conversationId ?? event.sessionKey ?? "") as string;
+  // Canonical numeric sender id lives in metadata.senderId for direct DMs.
+  // ctx.from is a display name and will fail principals.json lookup.
+  const senderId = (metadata.senderId ?? ctx.senderId ?? ctx.sender_id ?? ctx.from ?? "") as string;
   const channelId = (ctx.channelId ?? ctx.channel ?? "telegram") as string;
   const subject = `${channelId}-${threadId || "unknown"}-${messageId || Date.now()}`;
   return {
@@ -113,15 +117,20 @@ function buildPayload(direction: "inbound" | "outbound", event: InternalHookEven
     subject,
     body: content,
     importance: "warm",
+    dedup_key: `${channelId}:${direction}:${threadId || "x"}:${messageId || Date.now()}`,
     raw_payload: {
       direction,
       channel: channelId,
       thread_id: threadId,
       sender_id: senderId,
+      // chat_id is the conv_write_adapter's fallback when sender_id is missing
+      chat_id: senderId,
       message_id: messageId,
       session_key: event.sessionKey,
+      sender_name: metadata.senderName ?? metadata.senderUsername ?? ctx.from,
       timestamp: event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp),
-      original_context: ctx,
+      // Trim noisy original_context to just keys the adapter doesn't already use
+      original_metadata: metadata,
     },
   };
 }
@@ -145,19 +154,29 @@ export default definePluginEntry({
     const timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const forwardOutbound = !!cfg.forwardOutbound;
 
+    // Confirmed via source trace: openclaw fires internal hooks as
+    // type:action pairs (e.g., createInternalHookEvent("message", "received", ...))
+    // not as the PluginHookName SDK strings (e.g., "message_received").
+    // registerHook subscribes to internal hooks; the event name must use the
+    // colon form to match the firing site in dispatch-*.js.
     api.registerHook(
-      "message_received",
+      "message:received",
       async (event) => {
+        safeLog(api.logger, "info", "conv-tap: message:received fired", {
+          type: event.type,
+          action: event.action,
+          ctxKeys: Object.keys(event.context ?? {}),
+        });
         const payload = buildPayload("inbound", event);
         if (!payload) return;
         await forwardToRouter(routerUrl, timeoutMs, payload, api.logger);
       },
-      { name: "flyn-conv-tap-inbound", description: "Forward inbound message to conv tier" }
+      { name: "flyn-conv-tap-inbound", description: "Forward inbound channel message to conv tier" }
     );
 
     if (forwardOutbound) {
       api.registerHook(
-        "message_sent",
+        "message:sent",
         async (event) => {
           const payload = buildPayload("outbound", event);
           if (!payload) return;
