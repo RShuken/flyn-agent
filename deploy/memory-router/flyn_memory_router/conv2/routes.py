@@ -76,7 +76,10 @@ class Conv2Service:
     async def start(self) -> None:
         self.conv2_root.mkdir(parents=True, exist_ok=True)
         migrate(self.db_path)
-        self.queue = WorkQueue(db_path=self.db_path)
+        # claim_timeout must exceed the slowest stage timeout (promote = 180s
+        # for Graphiti LLM entity extraction). 240s gives buffer for the
+        # work + advance_stage commit window.
+        self.queue = WorkQueue(db_path=self.db_path, claim_timeout_s=240)
         handlers = {
             Stage.ENCRYPT: EncryptHandler(owner_id=self.owner_id),
             Stage.INDEX: IndexHandler(),

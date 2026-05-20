@@ -22,7 +22,11 @@ from ..work_queue import Job
 logger = logging.getLogger(__name__)
 
 DEFAULT_GRAPHITI_URL = "http://localhost:8100"
-DEFAULT_TIMEOUT = 10.0
+# Graphiti runs LLM-based entity extraction per episode synchronously.
+# Real-world latency: 60–120s warm, 180s worst-case. v1 conv_write used
+# httpx.Timeout(180); we match that. End-to-end p99 will reflect Graphiti
+# latency (not pipeline overhead) — pipeline-only p99 is ~50ms.
+DEFAULT_TIMEOUT = 180.0
 
 
 def _idempotency_key(message_id: int, channel: str, thread_id: str | None) -> str:
@@ -95,6 +99,8 @@ class PromoteHandler:
             },
         }
 
+        # Graphiti server: POST /api/episode (singular) for writes.
+        # GET /api/episodes (plural) is the read-only listing endpoint.
         status, response_text = await asyncio.to_thread(
             _post_episode_sync,
             f"{self.graphiti_url}/api/episode",

@@ -199,7 +199,7 @@ async def test_promote_handler_posts_episode(db_with_message):
         await h.handle(_job(Stage.PROMOTE, mid), db)
         mock.assert_called_once()
         url, payload, _timeout = mock.call_args[0]
-        assert "/api/episode" in url
+        assert "/api/episode" in url and "/api/episodes" not in url
         assert payload["group_id"] == "flyn-ryan"
         assert "episode_id" in payload
         assert payload["metadata"]["message_id"] == mid
