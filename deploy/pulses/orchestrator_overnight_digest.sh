@@ -60,39 +60,52 @@ fi
 # 5. Rubric snapshot
 RUBRIC_LINE=$(grep "^| \*\*1 — Orchestrator" "$WORKTREE/deploy/outcomes/ORCHESTRATOR-PHASE-RUBRIC.md" 2>/dev/null | head -1 || echo "(rubric not found)")
 
-# Compose the message
+# Compose the message as PLAIN TEXT (no parse_mode).
+# Reason: this digest embeds raw `git log` output, which can contain any chars
+# valid in a commit message (underscores, asterisks, backticks, brackets,
+# parens) — those reliably break Telegram Markdown v1 entity parsing with
+# "Bad Request: can't parse entities". Failing daily is worse than losing
+# bold/code styling; we send plain text instead.
 MSG=$(cat <<EOF
-*Flyn orchestrator — overnight digest*
+Flyn orchestrator — overnight digest
 
-*Phase 1 (orchestrator foundation, MVP plan)*
+Phase 1 (orchestrator foundation, MVP plan)
 Commits since $SINCE_DATE: $P1_COUNT
-$( [ -n "$PHASE1_COMMITS" ] && printf '\`\`\`\n%s\n\`\`\`' "$PHASE1_COMMITS" || echo '(none)')
+$([ -n "$PHASE1_COMMITS" ] && printf '%s' "$PHASE1_COMMITS" || echo '(none)')
 
-*Service health*
+Service health
 • Phase 0 router (:8400): $(echo "$ROUTER_HEALTH" | head -c 80)
 • Phase 1 orchestrator (:8300): $(echo "$ORCH_HEALTH" | head -c 80)
 
-*Tests*
+Tests
 $TEST_COUNT
 
-*Rubric snapshot*
+Rubric snapshot
 $RUBRIC_LINE
 
-*Next steps for you*
+Next steps for you
 1. Run the Phase 0 manual ship-gate playbook on your phone (real Telegram DM step)
-2. Review the Phase 1 MVP plan at \`docs/superpowers/plans/2026-05-15-flyn-orchestrator-phase-1-mvp.md\` on the \`feat/orchestrator-foundation-phase-1\` branch
+2. Review the Phase 1 MVP plan at docs/superpowers/plans/2026-05-15-flyn-orchestrator-phase-1-mvp.md on the feat/orchestrator-foundation-phase-1 branch
 3. Resume the build from wherever the overnight run left off — auto-memory has details
 
-PR #1 (Phase 0): https://github.com/RShuken/flyn-agent/pull/1 (merged ✅)
+PR #1 (Phase 0): https://github.com/RShuken/flyn-agent/pull/1 (merged)
 Phase 1 branch: https://github.com/RShuken/flyn-agent/tree/$PHASE1_BRANCH
 EOF
 )
 
-# Send to Telegram (Markdown v1)
-curl -sS -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+# Send to Telegram as plain text. Capture HTTP status so we can detect future
+# failures even though we no longer use parse_mode.
+RESPONSE=$(curl -sS -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
   -d "chat_id=${RYAN_CHAT_ID}" \
-  --data-urlencode "text=${MSG}" \
-  -d "parse_mode=Markdown" 2>&1 | head -c 200
+  --data-urlencode "text=${MSG}")
+echo "$RESPONSE" | head -c 200
 echo
+
+# If Telegram returned ok:false, surface a clear log line so the next pulse
+# run is easy to triage.
+if printf '%s' "$RESPONSE" | grep -q '"ok":false'; then
+  echo "$LOG_PREFIX ERROR: Telegram rejected message: $(printf '%s' "$RESPONSE" | head -c 300)"
+  exit 1
+fi
 
 echo "$LOG_PREFIX done"
