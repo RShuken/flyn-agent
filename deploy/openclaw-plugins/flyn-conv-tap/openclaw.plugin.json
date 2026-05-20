@@ -1,0 +1,52 @@
+{
+  "id": "flyn-conv-tap",
+  "name": "Flyn Conv-Tap",
+  "description": "Forwards every inbound channel message to flyn-memory-router's conv tier so conversations land in per-owner encrypted SQLite + Graphiti.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "routerUrl": {
+        "type": "string",
+        "default": "http://localhost:8400",
+        "description": "Base URL of flyn-memory-router (the /api/memory/ingest endpoint is appended)."
+      },
+      "forwardOutbound": {
+        "type": "boolean",
+        "default": false,
+        "description": "Also capture Flyn's own outbound replies via the message_sent hook."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "default": 1500,
+        "minimum": 100,
+        "maximum": 10000
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enabled",
+      "help": "Turn forwarding on/off without uninstalling the plugin."
+    },
+    "routerUrl": {
+      "label": "Memory Router URL",
+      "help": "Base URL where the conv tier ingest endpoint lives."
+    },
+    "forwardOutbound": {
+      "label": "Capture Outbound Replies",
+      "help": "Also record what Flyn sends back to users (default off)."
+    },
+    "timeoutMs": {
+      "label": "Forward Timeout (ms)",
+      "help": "How long to wait for the memory-router response before giving up."
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@flyn/conv-tap",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin: forward every inbound channel message to flyn-memory-router's conv tier.",
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "private": true,
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "flyn",
+    "conversation-memory"
+  ],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --external:openclaw --minify-whitespace"
+  },
+  "files": [
+    "dist/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  }
+}
