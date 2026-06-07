@@ -171,21 +171,31 @@ def load_auth():
     with open(AUTH_FILE) as f:
         data = json.load(f)
     profs = data["profiles"]
+    neo4j = profs["neo4j:default"]
     return {
-        "neo4j_uri": profs["neo4j:default"]["uri"],
-        "neo4j_user": profs["neo4j:default"]["user"],
-        "neo4j_pass": profs["neo4j:default"]["token"],
+        # uri/user aren't always present in the stored profile; default to the
+        # local Neo4j bolt endpoint (token is the password).
+        "neo4j_uri": neo4j.get("uri", "bolt://localhost:7687"),
+        "neo4j_user": neo4j.get("user", "neo4j"),
+        "neo4j_pass": neo4j["token"],
         "gemini_key": profs["google:default"]["token"],
+        "openai_key": profs["openai:default"]["token"],
     }
 
 
 def build_graphiti():
     auth = load_auth()
+    # LLM for entity/relationship extraction + reranking. Was local gemma4:e4b
+    # via Ollama; repointed to Gemini gemini-2.5-flash-lite (2026-06-06) after
+    # Ollama was shut down to reclaim memory. We go through Gemini's
+    # OpenAI-compatible endpoint so the OpenAIGenericClient reliability patch
+    # above still applies. The embedder already uses this same Gemini key.
+    # (flash-lite has no "thinking" token overhead; the OpenAI key had no quota.)
     llm_cfg = LLMConfig(
-        api_key="ollama",
-        model="gemma4:e4b",
-        small_model="gemma4:e4b",
-        base_url="http://localhost:11434/v1",
+        api_key=auth["gemini_key"],
+        model="gemini-2.5-flash-lite",
+        small_model="gemini-2.5-flash-lite",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     )
     return Graphiti(
         auth["neo4j_uri"],
